@@ -1,50 +1,51 @@
-// Apple Design System inspired dark theme for CARF
+// Apple Design System dark theme for CARF
 export const theme = {
   colors: {
-    // Base colors - Slate palette
+    // Base colors - Apple dark mode
     bg: {
-      primary: '#0f172a',      // slate-900
-      secondary: '#1e293b',    // slate-800
-      tertiary: '#334155',     // slate-700
-      hover: '#475569',        // slate-600
-      active: '#6366f1',       // indigo-500
-      selection: 'rgba(99, 102, 241, 0.2)', // indigo with opacity
-      card: '#1e293b',
-      input: '#0f172a',
+      primary: '#000000',      // Pure black (Apple style)
+      secondary: '#1c1c1e',    // System gray 6
+      tertiary: '#2c2c2e',     // System gray 5
+      hover: '#3a3a3c',        // System gray 4
+      active: '#0a84ff',       // System blue
+      selection: 'rgba(10, 132, 255, 0.2)',
+      card: '#1c1c1e',
+      input: '#1c1c1e',
+      elevated: '#2c2c2e',
     },
-    // Text colors
+    // Text colors - Apple
     text: {
-      primary: '#f8fafc',      // slate-50
-      secondary: '#cbd5e1',    // slate-300
-      muted: '#64748b',        // slate-500
-      accent: '#a78bfa',       // violet-400
-      error: '#f87171',        // red-400
-      success: '#4ade80',      // green-400
-      warning: '#fbbf24',      // amber-400
+      primary: '#ffffff',
+      secondary: '#ebebf5',    // 60% opacity
+      muted: '#8e8e93',        // System gray
+      accent: '#0a84ff',       // System blue
+      error: '#ff453a',        // System red
+      success: '#30d158',      // System green
+      warning: '#ff9f0a',      // System orange
     },
     // Border colors
     border: {
-      primary: '#334155',      // slate-700
-      secondary: '#475569',    // slate-600
-      focus: '#8b5cf6',        // violet-500
+      primary: '#38383a',      // Separator
+      secondary: '#48484a',
+      focus: '#0a84ff',
     },
-    // Accent colors - Purple/Violet
+    // Accent colors - Apple Blue
     accent: {
-      primary: '#8b5cf6',      // violet-500
-      secondary: '#7c3aed',    // violet-600
-      hover: '#a78bfa',        // violet-400
-      muted: 'rgba(139, 92, 246, 0.3)',
+      primary: '#0a84ff',      // System blue
+      secondary: '#0071e3',    // Apple blue
+      hover: '#409cff',
+      muted: 'rgba(10, 132, 255, 0.2)',
     },
-    // Status colors
+    // Status colors - Apple system colors
     status: {
-      error: '#ef4444',        // red-500
-      errorBg: 'rgba(239, 68, 68, 0.1)',
-      warning: '#f59e0b',      // amber-500
-      warningBg: 'rgba(245, 158, 11, 0.1)',
-      info: '#3b82f6',         // blue-500
-      infoBg: 'rgba(59, 130, 246, 0.1)',
-      success: '#22c55e',      // green-500
-      successBg: 'rgba(34, 197, 94, 0.1)',
+      error: '#ff453a',        // System red
+      errorBg: 'rgba(255, 69, 58, 0.15)',
+      warning: '#ff9f0a',      // System orange
+      warningBg: 'rgba(255, 159, 10, 0.15)',
+      info: '#0a84ff',         // System blue
+      infoBg: 'rgba(10, 132, 255, 0.15)',
+      success: '#30d158',      // System green
+      successBg: 'rgba(48, 209, 88, 0.15)',
     },
   },
   spacing: {

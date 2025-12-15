@@ -2,24 +2,19 @@ import { useState } from 'react';
 import styled from '@emotion/styled';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Cpu, 
-  FileCode, 
+  Code, 
   Play, 
   Crosshair, 
+  FileCode, 
   Search,
   Zap,
-  Package,
-  Globe,
-  Trash2,
 } from 'lucide-react';
 import { theme } from '../../styles';
 import { PanelContainer, PanelContent, PanelSection, PanelSectionTitle } from '../common/Panel';
 import { Button } from '../common/Button';
-import { Toolbar } from '../common/Toolbar';
 import { Input, InputGroup, Label, InputRow } from '../common/Input';
-import { useUIStore } from '../../stores/uiStore';
 
-// Tab navigation
+// Styled components
 const TabContainer = styled.div`
   display: flex;
   gap: ${theme.spacing.xs};
@@ -47,91 +42,6 @@ const Tab = styled.button<{ $active: boolean }>`
   }
 `;
 
-const ModuleList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: ${theme.spacing.xs};
-`;
-
-const ModuleItem = styled(motion.div)<{ $selected: boolean }>`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: ${theme.spacing.sm} ${theme.spacing.md};
-  background: ${({ $selected }) => ($selected ? theme.colors.bg.selection : theme.colors.bg.tertiary)};
-  border-radius: ${theme.borderRadius.sm};
-  cursor: pointer;
-  
-  &:hover {
-    background: ${({ $selected }) => ($selected ? theme.colors.bg.selection : theme.colors.bg.hover)};
-  }
-`;
-
-const ModuleName = styled.span`
-  font-family: 'SF Mono', 'Consolas', monospace;
-  font-size: ${theme.fontSize.sm};
-  color: ${theme.colors.text.primary};
-`;
-
-const ModuleBase = styled.span`
-  font-family: 'SF Mono', 'Consolas', monospace;
-  font-size: ${theme.fontSize.xs};
-  color: ${theme.colors.text.accent};
-`;
-
-const ModuleSize = styled.span`
-  font-size: ${theme.fontSize.xs};
-  color: ${theme.colors.text.muted};
-`;
-
-const ExportList = styled.div`
-  max-height: 300px;
-  overflow: auto;
-  background: ${theme.colors.bg.primary};
-  border: 1px solid ${theme.colors.border.primary};
-  border-radius: ${theme.borderRadius.md};
-`;
-
-const ExportItem = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: ${theme.spacing.xs} ${theme.spacing.sm};
-  border-bottom: 1px solid ${theme.colors.border.primary};
-  font-size: ${theme.fontSize.xs};
-  cursor: pointer;
-  
-  &:last-child {
-    border-bottom: none;
-  }
-  
-  &:hover {
-    background: ${theme.colors.bg.hover};
-  }
-`;
-
-const ExportName = styled.span`
-  font-family: 'SF Mono', 'Consolas', monospace;
-  color: ${theme.colors.text.success};
-`;
-
-const ExportAddress = styled.span`
-  font-family: 'SF Mono', 'Consolas', monospace;
-  color: ${theme.colors.text.accent};
-`;
-
-const PlaceholderMessage = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 200px;
-  color: ${theme.colors.text.muted};
-  text-align: center;
-  gap: ${theme.spacing.sm};
-`;
-
-// Card for advanced features
 const Card = styled.div`
   padding: ${theme.spacing.md};
   background: ${theme.colors.bg.tertiary};
@@ -150,7 +60,6 @@ const CardTitle = styled.h4`
   gap: ${theme.spacing.sm};
 `;
 
-// Disassembly view
 const DisasmView = styled.div`
   font-family: 'SF Mono', 'Consolas', monospace;
   font-size: ${theme.fontSize.xs};
@@ -163,7 +72,7 @@ const DisasmView = styled.div`
 
 const DisasmRow = styled.div<{ $isFirst?: boolean }>`
   display: grid;
-  grid-template-columns: 130px 100px 80px 1fr;
+  grid-template-columns: 120px 100px 80px 1fr;
   gap: ${theme.spacing.sm};
   padding: ${theme.spacing.xs} ${theme.spacing.sm};
   border-bottom: 1px solid ${theme.colors.border.primary};
@@ -252,7 +161,17 @@ const HookBadge = styled.span`
   color: white;
   border-radius: ${theme.borderRadius.full};
   font-size: ${theme.fontSize.xs};
-  margin-left: ${theme.spacing.sm};
+`;
+
+const PlaceholderMessage = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 150px;
+  color: ${theme.colors.text.muted};
+  text-align: center;
+  gap: ${theme.spacing.sm};
 `;
 
 const ArgInputRow = styled.div`
@@ -277,31 +196,27 @@ const RemoveButton = styled.button`
   }
 `;
 
-type NativeTabType = 'modules' | 'disasm' | 'call' | 'hook' | 'info' | 'resolver';
+type TabType = 'disasm' | 'call' | 'hook' | 'info';
 
-type NativePanelProps = {
+type NativeAdvancedPanelProps = {
   hasSession: boolean;
   onRpcCall: (method: string, params?: unknown) => Promise<unknown>;
 };
 
-export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
-  // Use Zustand store for state persistence across tab switches
-  const {
-    nativePanel: { modules, selectedModule, exports, searchQuery },
-    setNativeModules,
-    setNativeSelectedModule,
-    setNativeExports,
-    setNativeSearchQuery,
-  } = useUIStore();
-  
+export function NativeAdvancedPanel({ hasSession, onRpcCall }: NativeAdvancedPanelProps) {
+  const [activeTab, setActiveTab] = useState<TabType>('disasm');
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<NativeTabType>('modules');
 
   // Disassembly state
   const [disasmAddress, setDisasmAddress] = useState('');
   const [disasmCount, setDisasmCount] = useState('20');
   const [disasmResult, setDisasmResult] = useState<{
-    instructions: Array<{ address: string; mnemonic: string; opStr: string; bytes: string }>;
+    instructions: Array<{
+      address: string;
+      mnemonic: string;
+      opStr: string;
+      bytes: string;
+    }>;
   } | null>(null);
 
   // Function call state
@@ -325,42 +240,6 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
     protection: string | null;
     instructions: Array<{ address: string; mnemonic: string; opStr: string }>;
   } | null>(null);
-
-  // ApiResolver state
-  const [resolverType, setResolverType] = useState<'module' | 'objc'>('module');
-  const [resolverQuery, setResolverQuery] = useState('');
-  const [resolverResults, setResolverResults] = useState<Array<{ name: string; address: string }>>([]);
-
-  // Module handlers
-  const handleEnumerateModules = async () => {
-    setLoading(true);
-    try {
-      const result = await onRpcCall('enumerate_modules');
-      if (Array.isArray(result)) {
-        setNativeModules(result);
-      }
-    } catch (e) {
-      console.error('Failed to enumerate modules:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSelectModule = async (moduleName: string) => {
-    setNativeSelectedModule(moduleName);
-    setLoading(true);
-    try {
-      const result = await onRpcCall('enumerate_exports', { module: moduleName });
-      if (Array.isArray(result)) {
-        setNativeExports(result);
-      }
-    } catch (e) {
-      console.error('Failed to enumerate exports:', e);
-      setNativeExports([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Disassemble handler
   const handleDisassemble = async () => {
@@ -388,7 +267,13 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
         address: callAddress,
         returnType: callReturnType,
         argTypes: callArgTypes,
-        args: callArgs.map((a) => (!a.startsWith('0x') && !isNaN(Number(a)) ? Number(a) : a)),
+        args: callArgs.map((a) => {
+          // Try to parse as number if not hex address
+          if (!a.startsWith('0x') && !isNaN(Number(a))) {
+            return Number(a);
+          }
+          return a;
+        }),
       });
       const data = result as { result: string };
       setCallResult(data.result);
@@ -400,7 +285,7 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
     }
   };
 
-  // Hook handlers
+  // Hook handler
   const handleAttachHook = async () => {
     if (!hookTarget) return;
     setLoading(true);
@@ -458,7 +343,7 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
     }
   };
 
-  // Arg helpers
+  // Add/remove arg helpers
   const addArg = () => {
     setCallArgTypes([...callArgTypes, 'pointer']);
     setCallArgs([...callArgs, '']);
@@ -481,44 +366,13 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
     setCallArgs(newArgs);
   };
 
-  // Click export to disassemble
-  const handleExportClick = (address: string) => {
-    setDisasmAddress(address);
-    setActiveTab('disasm');
-  };
-
-  // ApiResolver handler
-  const handleApiResolverSearch = async () => {
-    if (!resolverQuery.trim()) return;
-    setLoading(true);
-    try {
-      const result = await onRpcCall('api_resolver_enumerate', {
-        type: resolverType,
-        query: resolverQuery,
-        limit: 100,
-      });
-      if (Array.isArray(result)) {
-        setResolverResults(result as Array<{ name: string; address: string }>);
-      }
-    } catch (e) {
-      console.error('ApiResolver search failed:', e);
-      setResolverResults([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const filteredModules = modules.filter((m) =>
-    m.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   if (!hasSession) {
     return (
       <PanelContainer>
         <PanelContent>
           <PlaceholderMessage>
-            <Cpu size={48} strokeWidth={1} />
-            <span>Attach to a process to view native modules</span>
+            <Code size={48} strokeWidth={1} />
+            <span>Attach to a process to use advanced native features</span>
           </PlaceholderMessage>
         </PanelContent>
       </PanelContainer>
@@ -532,110 +386,33 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
       transition={{ duration: 0.2 }}
     >
       <TabContainer>
-        <Tab $active={activeTab === 'modules'} onClick={() => setActiveTab('modules')}>
-          <Package size={14} />
-          Modules
-        </Tab>
         <Tab $active={activeTab === 'disasm'} onClick={() => setActiveTab('disasm')}>
           <FileCode size={14} />
-          Disasm
+          Disassembly
         </Tab>
         <Tab $active={activeTab === 'call'} onClick={() => setActiveTab('call')}>
           <Play size={14} />
-          Call
+          Call Function
         </Tab>
         <Tab $active={activeTab === 'hook'} onClick={() => setActiveTab('hook')}>
           <Crosshair size={14} />
-          Hook
+          Hooks
         </Tab>
         <Tab $active={activeTab === 'info'} onClick={() => setActiveTab('info')}>
           <Search size={14} />
-          Info
-        </Tab>
-        <Tab $active={activeTab === 'resolver'} onClick={() => setActiveTab('resolver')}>
-          <Globe size={14} />
-          Resolver
+          Function Info
         </Tab>
       </TabContainer>
 
       <PanelContent>
         <AnimatePresence mode="wait">
-          {/* Modules Tab */}
-          {activeTab === 'modules' && (
-            <motion.div
-              key="modules"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <Toolbar
-                searchValue={searchQuery}
-                onSearchChange={setNativeSearchQuery}
-                searchPlaceholder="Filter modules..."
-                onRefresh={handleEnumerateModules}
-                refreshing={loading}
-                totalCount={modules.length}
-                filteredCount={filteredModules.length}
-              >
-                <Button $variant="primary" $size="sm" onClick={handleEnumerateModules} disabled={loading}>
-                  Enumerate
-                </Button>
-              </Toolbar>
-
-              <PanelSection>
-                <PanelSectionTitle>Loaded Modules</PanelSectionTitle>
-                <ModuleList>
-                  {filteredModules.map((m) => (
-                    <ModuleItem
-                      key={m.name}
-                      $selected={selectedModule === m.name}
-                      onClick={() => handleSelectModule(m.name)}
-                      whileHover={{ x: 2 }}
-                    >
-                      <div>
-                        <ModuleName>{m.name}</ModuleName>
-                        <br />
-                        <ModuleBase>{m.base}</ModuleBase>
-                      </div>
-                      <ModuleSize>{(m.size / 1024).toFixed(1)} KB</ModuleSize>
-                    </ModuleItem>
-                  ))}
-                  {filteredModules.length === 0 && modules.length === 0 && (
-                    <PlaceholderMessage style={{ height: 100 }}>
-                      Click "Enumerate" to list loaded modules
-                    </PlaceholderMessage>
-                  )}
-                </ModuleList>
-              </PanelSection>
-
-              {selectedModule && (
-                <PanelSection>
-                  <PanelSectionTitle>Exports: {selectedModule}</PanelSectionTitle>
-                  <ExportList>
-                    {exports.map((exp, i) => (
-                      <ExportItem key={i} onClick={() => handleExportClick(exp.address)}>
-                        <ExportName>{exp.name}</ExportName>
-                        <ExportAddress>{exp.address}</ExportAddress>
-                      </ExportItem>
-                    ))}
-                    {exports.length === 0 && (
-                      <PlaceholderMessage style={{ height: 100 }}>
-                        No exports found or still loading...
-                      </PlaceholderMessage>
-                    )}
-                  </ExportList>
-                </PanelSection>
-              )}
-            </motion.div>
-          )}
-
           {/* Disassembly Tab */}
           {activeTab === 'disasm' && (
             <motion.div
               key="disasm"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
             >
               <Card>
                 <CardTitle>
@@ -648,7 +425,7 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
                     <Input
                       value={disasmAddress}
                       onChange={(e) => setDisasmAddress(e.target.value)}
-                      placeholder="0x7fff12340000"
+                      placeholder="0x7fff12340000 or symbol name"
                     />
                     <Input
                       value={disasmCount}
@@ -687,9 +464,9 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
           {activeTab === 'call' && (
             <motion.div
               key="call"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
             >
               <Card>
                 <CardTitle>
@@ -709,7 +486,7 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
                   <Input
                     value={callReturnType}
                     onChange={(e) => setCallReturnType(e.target.value)}
-                    placeholder="pointer, int, void..."
+                    placeholder="pointer, int, void, etc."
                     style={{ width: 150 }}
                   />
                 </InputGroup>
@@ -722,13 +499,13 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
                     <SmallInput
                       value={type}
                       onChange={(e) => updateArgType(i, e.target.value)}
-                      placeholder="Type"
-                      style={{ width: 100 }}
+                      placeholder="Type (pointer, int...)"
+                      style={{ width: 120 }}
                     />
                     <SmallInput
                       value={callArgs[i] || ''}
                       onChange={(e) => updateArgValue(i, e.target.value)}
-                      placeholder="Value"
+                      placeholder="Value (0x... or number)"
                     />
                     <RemoveButton onClick={() => removeArg(i)}>✕</RemoveButton>
                   </ArgInputRow>
@@ -745,7 +522,7 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
                     disabled={loading || !callAddress}
                   >
                     <Zap size={14} />
-                    Execute
+                    Execute Call
                   </Button>
                 </div>
               </Card>
@@ -759,13 +536,13 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
             </motion.div>
           )}
 
-          {/* Hook Tab */}
+          {/* Hooks Tab */}
           {activeTab === 'hook' && (
             <motion.div
               key="hook"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
             >
               <Card>
                 <CardTitle>
@@ -793,7 +570,7 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
               </Card>
 
               <PanelSection>
-                <PanelSectionTitle style={{ display: 'flex', alignItems: 'center' }}>
+                <PanelSectionTitle>
                   Active Hooks ({activeHooks.length})
                   {activeHooks.length > 0 && (
                     <Button
@@ -811,7 +588,7 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
                     <HookItem key={hook.id}>
                       <div>
                         <HookTarget>{hook.target}</HookTarget>
-                        <HookBadge>Active</HookBadge>
+                        <HookBadge style={{ marginLeft: theme.spacing.sm }}>Active</HookBadge>
                       </div>
                       <Button
                         $variant="ghost"
@@ -836,9 +613,9 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
           {activeTab === 'info' && (
             <motion.div
               key="info"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
             >
               <Card>
                 <CardTitle>
@@ -906,98 +683,6 @@ export function NativePanel({ hasSession, onRpcCall }: NativePanelProps) {
                   )}
                 </Card>
               )}
-            </motion.div>
-          )}
-
-          {/* ApiResolver Tab */}
-          {activeTab === 'resolver' && (
-            <motion.div
-              key="resolver"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <Card>
-                <CardTitle>
-                  <Globe size={16} />
-                  API Resolver
-                </CardTitle>
-                <InputGroup>
-                  <Label>Resolver Type</Label>
-                  <select
-                    value={resolverType}
-                    onChange={(e) => setResolverType(e.target.value as 'module' | 'objc')}
-                    style={{
-                      padding: '6px 8px',
-                      background: theme.colors.bg.secondary,
-                      border: `1px solid ${theme.colors.border.primary}`,
-                      borderRadius: theme.borderRadius.sm,
-                      color: theme.colors.text.primary,
-                      fontSize: theme.fontSize.sm,
-                      width: 150,
-                    }}
-                  >
-                    <option value="module">Module (exports/imports)</option>
-                    <option value="objc">ObjC (methods)</option>
-                  </select>
-                </InputGroup>
-                <InputGroup style={{ marginTop: theme.spacing.sm }}>
-                  <Label>Query Pattern</Label>
-                  <InputRow>
-                    <Input
-                      value={resolverQuery}
-                      onChange={(e) => setResolverQuery(e.target.value)}
-                      placeholder={resolverType === 'module' ? 'exports:*!open*' : '-[NSString *]'}
-                    />
-                    <Button
-                      $variant="primary"
-                      $size="sm"
-                      onClick={handleApiResolverSearch}
-                      disabled={loading || !resolverQuery.trim()}
-                    >
-                      <Search size={14} />
-                      Search
-                    </Button>
-                  </InputRow>
-                </InputGroup>
-                <div style={{ marginTop: theme.spacing.sm, fontSize: theme.fontSize.xs, color: theme.colors.text.muted }}>
-                  {resolverType === 'module' ? (
-                    <span>Examples: exports:*!open*, imports:libSystem*!read*, exports:libc.so!malloc</span>
-                  ) : (
-                    <span>Examples: -[NSString *], +[NSURL *], *[* initWith*]</span>
-                  )}
-                </div>
-              </Card>
-
-              <PanelSection>
-                <PanelSectionTitle style={{ display: 'flex', alignItems: 'center' }}>
-                  Results ({resolverResults.length})
-                  {resolverResults.length > 0 && (
-                    <Button
-                      $variant="ghost"
-                      $size="sm"
-                      onClick={() => setResolverResults([])}
-                      style={{ marginLeft: 'auto' }}
-                    >
-                      <Trash2 size={12} />
-                      Clear
-                    </Button>
-                  )}
-                </PanelSectionTitle>
-                <ExportList style={{ maxHeight: 400 }}>
-                  {resolverResults.map((r, i) => (
-                    <ExportItem key={i} onClick={() => handleExportClick(r.address)}>
-                      <ExportName style={{ wordBreak: 'break-all' }}>{r.name}</ExportName>
-                      <ExportAddress>{r.address}</ExportAddress>
-                    </ExportItem>
-                  ))}
-                  {resolverResults.length === 0 && (
-                    <PlaceholderMessage style={{ height: 100 }}>
-                      Enter a query pattern and click Search
-                    </PlaceholderMessage>
-                  )}
-                </ExportList>
-              </PanelSection>
             </motion.div>
           )}
         </AnimatePresence>

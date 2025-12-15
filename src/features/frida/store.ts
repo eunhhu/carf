@@ -4,6 +4,7 @@ import type { DeviceInfo, ProcessInfo, SessionAttachedEvent, SessionDetachedEven
 import { agentRpc } from "./agentRpc";
 import { fridaBackendApi } from "./backendApi";
 import { fridaEvents } from "./events";
+import { showAlert } from "../../stores/alertStore";
 
 type StoreState = {
   busy: boolean;
@@ -57,12 +58,18 @@ let refreshProcessesInFlightDeviceId: string | null = null;
 function withErrorHandling<T>(
   set: (partial: Partial<StoreState>) => void,
   op: () => Promise<T>,
+  context?: string,
 ): Promise<T> {
   set({ busy: true, error: null });
   return op()
     .catch((e) => {
       const message = e instanceof Error ? e.message : String(e);
       set({ error: message });
+      // Show error alert
+      showAlert.error(
+        context || "Operation Failed",
+        message
+      );
       throw e;
     })
     .finally(() => {
@@ -157,7 +164,7 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
     await withErrorHandling(set, async () => {
       const version = await fridaBackendApi.version();
       set({ version });
-    });
+    }, "Failed to get Frida version");
   },
 
   refreshDevices: async () => {
@@ -170,7 +177,7 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
       }
 
       set({ devices, selectedDeviceId });
-    });
+    }, "Failed to list devices");
   },
 
   refreshProcesses: async (deviceId) => {
@@ -188,7 +195,7 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
     const request = withErrorHandling(set, async () => {
       const processes = await fridaBackendApi.listProcesses(id);
       set({ processes });
-    });
+    }, "Failed to list processes");
 
     refreshProcessesInFlight = request;
     refreshProcessesInFlightDeviceId = id;
@@ -212,7 +219,8 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
     await withErrorHandling(set, async () => {
       const session = await fridaBackendApi.attach(deviceId, pid);
       set({ attachedSessionId: session.session_id, loadedScriptId: session.script_id });
-    });
+      showAlert.success("Attached", `Successfully attached to process ${pid}`);
+    }, "Attach Failed");
   },
 
   detach: async () => {
@@ -224,7 +232,8 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
     await withErrorHandling(set, async () => {
       await fridaBackendApi.detach(sessionId);
       set({ attachedSessionId: null, loadedScriptId: null });
-    });
+      showAlert.info("Detached", "Session detached");
+    }, "Detach Failed");
   },
 
   spawn: async (program, argv) => {
@@ -232,8 +241,10 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
     if (!deviceId) throw new Error("No device selected");
 
     return await withErrorHandling(set, async () => {
-      return await fridaBackendApi.spawn(deviceId, program, argv);
-    });
+      const pid = await fridaBackendApi.spawn(deviceId, program, argv);
+      showAlert.success("Spawned", `Process spawned with PID ${pid}`);
+      return pid;
+    }, "Spawn Failed");
   },
 
   resume: async (pid) => {
@@ -242,7 +253,8 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
 
     await withErrorHandling(set, async () => {
       await fridaBackendApi.resume(deviceId, pid);
-    });
+      showAlert.info("Resumed", `Process ${pid} resumed`);
+    }, "Resume Failed");
   },
 
   kill: async (pid) => {
@@ -251,7 +263,8 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
 
     await withErrorHandling(set, async () => {
       await fridaBackendApi.kill(deviceId, pid);
-    });
+      showAlert.info("Killed", `Process ${pid} terminated`);
+    }, "Kill Failed");
     await get().refreshProcesses(deviceId);
   },
 
@@ -266,7 +279,7 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
       const info = await fridaBackendApi.loadDefaultScript(sessionId);
       set({ loadedScriptId: info.script_id });
       return info.script_id;
-    });
+    }, "Script Load Failed");
   },
 
   unloadScript: async () => {
@@ -276,7 +289,7 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
     await withErrorHandling(set, async () => {
       await fridaBackendApi.unloadScript(scriptId);
       set({ loadedScriptId: null });
-    });
+    }, "Script Unload Failed");
   },
 
   agentRequest: async (method, params) => {
@@ -285,6 +298,6 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
 
     return await withErrorHandling(set, async () => {
       return await agentRpc.request(scriptId, method, params);
-    });
+    }, `RPC: ${method}`);
   },
 }));

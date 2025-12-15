@@ -1,5 +1,6 @@
 export { AttachPanel } from './AttachPanel';
 export { NativePanel } from './NativePanel';
+export { NativeAdvancedPanel } from './NativeAdvancedPanel';
 export { MemoryPanel } from './MemoryPanel';
 export { MethodsPanel } from './MethodsPanel';
 export { ThreadPanel } from './ThreadPanel';

@@ -6,6 +6,7 @@ import { theme } from '../../styles';
 export const PanelContainer = styled(motion.div)`
   display: flex;
   flex-direction: column;
+  width: 100%;
   height: 100%;
   background: ${theme.colors.bg.secondary};
   overflow: hidden;
@@ -39,6 +40,8 @@ export const PanelContent = styled.div`
   flex: 1;
   overflow: auto;
   padding: ${theme.spacing.sm};
+  scrollbar-gutter: stable;
+  min-width: 0;
 `;
 
 export const PanelSection = styled.div`

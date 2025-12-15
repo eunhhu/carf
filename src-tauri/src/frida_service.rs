@@ -514,18 +514,20 @@ impl FridaContext {
         debug_log("load_default_script: script.load() succeeded");
 
         // Register message handler AFTER load succeeds.
+        // Use global registry to store handler data - workaround for frida-rust callback issues
         debug_log("load_default_script: about to handle_message");
+        register_handler(script_id, session_id, self.app.clone());
+        debug_log("load_default_script: handler registered in global registry");
+        
         unsafe {
             (*script_ptr)
-                .handle_message(TauriScriptHandler {
-                    app: self.app.clone(),
-                    session_id,
-                    script_id,
-                })
+                .handle_message(TauriScriptHandler { script_id })
                 .map_err(|e| {
                     // Try to unload on failure, but don't fail if unload fails
                     let _ = (*script_ptr).unload();
                     let _ = Box::from_raw(script_ptr);
+                    // Unregister handler on failure
+                    unregister_handler(script_id);
                     e.to_string()
                 })?;
         }
@@ -593,10 +595,14 @@ impl FridaContext {
         message: serde_json::Value,
         data: Option<Vec<u8>>,
     ) -> Result<(), String> {
+        debug_log(&format!("script_post: script_id={} - begin", script_id));
+
         let record = self
             .scripts
             .get(&script_id)
             .ok_or_else(|| "Unknown script_id".to_string())?;
+
+        debug_log("script_post: found script record");
 
         if let Some(session) = self.sessions.get(&record.session_id) {
             if (&*session.session).is_detached() {
@@ -606,15 +612,27 @@ impl FridaContext {
             return Err("Session is detached".to_string());
         }
 
+        debug_log("script_post: session is valid");
+
         let message_json = serde_json::to_string(&message).map_err(|e| e.to_string())?;
         validate_no_nul("message", &message_json)?;
 
+        debug_log(&format!("script_post: message_json len={}", message_json.len()));
+
+        let script_ptr = record.script;
+
         // Safety: script was allocated via Box::into_raw in load_default_script.
-        unsafe {
-            (*record.script)
-                .post(message_json, data.as_deref())
+        // We do NOT use catch_unwind here because frida-rust crashes happen in C code
+        // which catch_unwind cannot catch. Instead we just call directly.
+        debug_log("script_post: about to call script.post()");
+        let result = unsafe {
+            (*script_ptr)
+                .post(&message_json, data.as_deref())
                 .map_err(|e| e.to_string())
-        }
+        };
+        debug_log(&format!("script_post: post() returned {:?}", result.is_ok()));
+
+        result
     }
 
     fn spawn(
@@ -672,56 +690,128 @@ impl FridaContext {
     }
 }
 
+// Global storage for handler data - workaround for frida-rust callback lifetime issues
+use std::sync::Mutex;
+use std::sync::OnceLock;
+
+struct HandlerRegistry {
+    handlers: HashMap<u64, (tauri::AppHandle, u64)>, // script_id -> (app, session_id)
+}
+
+static HANDLER_REGISTRY: OnceLock<Mutex<HandlerRegistry>> = OnceLock::new();
+
+fn get_handler_registry() -> &'static Mutex<HandlerRegistry> {
+    HANDLER_REGISTRY.get_or_init(|| {
+        Mutex::new(HandlerRegistry {
+            handlers: HashMap::new(),
+        })
+    })
+}
+
+fn register_handler(script_id: u64, session_id: u64, app: tauri::AppHandle) {
+    if let Ok(mut registry) = get_handler_registry().lock() {
+        registry.handlers.insert(script_id, (app, session_id));
+    }
+}
+
+fn unregister_handler(script_id: u64) {
+    if let Ok(mut registry) = get_handler_registry().lock() {
+        registry.handlers.remove(&script_id);
+    }
+}
+
 #[derive(Clone)]
 struct TauriScriptHandler {
-    app: tauri::AppHandle,
-    session_id: u64,
     script_id: u64,
 }
 
 impl ScriptHandler for TauriScriptHandler {
-    fn on_message(&mut self, message: Message, data: Option<Vec<u8>>) {
-        let message_value = match message {
-            Message::Send(m) => json!({
-                "type": "send",
-                "payload": {
-                    "type": m.payload.r#type,
-                    "id": m.payload.id,
-                    "result": m.payload.result,
-                    "returns": m.payload.returns,
+    fn on_message(&mut self, message: Message, msg_data: Option<Vec<u8>>) {
+        debug_log(&format!(
+            "on_message: script_id={} - begin",
+            self.script_id
+        ));
+
+        // Get handler data from global registry
+        let (app, session_id) = {
+            let registry = match get_handler_registry().lock() {
+                Ok(r) => r,
+                Err(_) => {
+                    debug_log("on_message: failed to lock registry");
+                    return;
                 }
-            }),
-            Message::Log(m) => json!({
-                "type": "log",
-                "payload": {
-                    "level": format!("{:?}", m.level),
-                    "payload": m.payload,
+            };
+            match registry.handlers.get(&self.script_id) {
+                Some((app, session_id)) => (app.clone(), *session_id),
+                None => {
+                    debug_log("on_message: handler not found in registry");
+                    return;
                 }
-            }),
-            Message::Error(m) => json!({
-                "type": "error",
-                "payload": {
-                    "description": m.description,
-                    "stack": m.stack,
-                    "file_name": m.file_name,
-                    "line_number": m.line_number,
-                    "column_number": m.column_number,
-                }
-            }),
-            Message::Other(v) => json!({
-                "type": "other",
-                "payload": v,
-            }),
+            }
         };
 
+        debug_log(&format!(
+            "on_message: session_id={} script_id={}",
+            session_id, self.script_id
+        ));
+
+        let message_value = match &message {
+            Message::Send(m) => {
+                debug_log("on_message: Message::Send");
+                json!({
+                    "type": "send",
+                    "payload": {
+                        "type": m.payload.r#type,
+                        "id": m.payload.id,
+                        "result": m.payload.result,
+                        "returns": m.payload.returns,
+                    }
+                })
+            }
+            Message::Log(m) => {
+                debug_log("on_message: Message::Log");
+                json!({
+                    "type": "log",
+                    "payload": {
+                        "level": format!("{:?}", m.level),
+                        "payload": m.payload,
+                    }
+                })
+            }
+            Message::Error(m) => {
+                debug_log("on_message: Message::Error");
+                json!({
+                    "type": "error",
+                    "payload": {
+                        "description": m.description,
+                        "stack": m.stack,
+                        "file_name": m.file_name,
+                        "line_number": m.line_number,
+                        "column_number": m.column_number,
+                    }
+                })
+            }
+            Message::Other(v) => {
+                debug_log("on_message: Message::Other");
+                json!({
+                    "type": "other",
+                    "payload": v,
+                })
+            }
+        };
+
+        debug_log("on_message: building payload");
+
         let payload = json!({
-            "session_id": self.session_id,
+            "session_id": session_id,
             "script_id": self.script_id,
             "message": message_value,
-            "data": data,
+            "data": msg_data,
         });
 
-        let _ = self.app.emit("frida_script_message", payload);
+        debug_log("on_message: about to emit");
+        let _ = app.emit("frida_script_message", payload);
+        debug_log("on_message: emit done");
     }
 }
 

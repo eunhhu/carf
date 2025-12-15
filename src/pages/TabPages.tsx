@@ -1,0 +1,113 @@
+import type { TabId } from '../components/layout';
+import type { DeviceInfo, ProcessInfo } from '../features/frida/types';
+
+import { AttachPage } from './attach/AttachPage';
+import { NativePage } from './native/NativePage';
+import { MemoryPage } from './memory/MemoryPage';
+import { MethodsPage } from './methods/MethodsPage';
+import { ThreadPage } from './thread/ThreadPage';
+import { ObjcPage } from './objc/ObjcPage';
+import { SwiftPage } from './swift/SwiftPage';
+import { JavaPage } from './java/JavaPage';
+import { ConsolePage } from './console/ConsolePage';
+import { SettingsPage } from './settings/SettingsPage';
+
+type TabPagesProps = {
+  activeTab: TabId;
+
+  // Attach
+  devices: DeviceInfo[];
+  processes: ProcessInfo[];
+  selectedDeviceId: string;
+  sessionId: number | null;
+  scriptId: number | null;
+  busy: boolean;
+  onDeviceChange: (deviceId: string) => void;
+  onRefreshDevices: () => void;
+  onRefreshProcesses: () => void;
+  onAttach: (pid: number) => void;
+  onDetach: () => void;
+  onSpawn: (program: string, argv: string[] | null) => Promise<number | null>;
+  onResume: (pid: number) => void;
+  onKill: (pid: number) => void;
+
+  // RPC
+  hasScript: boolean;
+  onRpcCall: (method: string, params?: unknown) => Promise<unknown>;
+
+  // Settings
+  fridaVersion: string;
+};
+
+export function TabPages({
+  activeTab,
+  devices,
+  processes,
+  selectedDeviceId,
+  sessionId,
+  scriptId,
+  busy,
+  onDeviceChange,
+  onRefreshDevices,
+  onRefreshProcesses,
+  onAttach,
+  onDetach,
+  onSpawn,
+  onResume,
+  onKill,
+  hasScript,
+  onRpcCall,
+  fridaVersion,
+}: TabPagesProps) {
+  switch (activeTab) {
+    case 'attach':
+      return (
+        <AttachPage
+          devices={devices}
+          processes={processes}
+          selectedDeviceId={selectedDeviceId}
+          sessionId={sessionId}
+          scriptId={scriptId}
+          busy={busy}
+          onDeviceChange={onDeviceChange}
+          onRefreshDevices={onRefreshDevices}
+          onRefreshProcesses={onRefreshProcesses}
+          onAttach={onAttach}
+          onDetach={onDetach}
+          onSpawn={onSpawn}
+          onResume={onResume}
+          onKill={onKill}
+        />
+      );
+
+    case 'native':
+      return <NativePage hasSession={hasScript} onRpcCall={onRpcCall} />;
+
+    case 'memory':
+      return <MemoryPage hasSession={hasScript} onRpcCall={onRpcCall} />;
+
+    case 'methods':
+      return <MethodsPage hasSession={hasScript} onRpcCall={onRpcCall} />;
+
+    case 'thread':
+      return <ThreadPage hasSession={hasScript} onRpcCall={onRpcCall} />;
+
+    case 'objc':
+      return <ObjcPage />;
+
+    case 'swift':
+      return <SwiftPage />;
+
+    case 'java':
+      return <JavaPage />;
+
+    case 'console':
+      return <ConsolePage />;
+
+    case 'settings':
+      return <SettingsPage fridaVersion={fridaVersion} />;
+
+    default:
+      return <ConsolePage />;
+  }
+}

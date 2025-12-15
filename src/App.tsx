@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Global } from '@emotion/react';
-import { GitBranch, Apple, Coffee } from 'lucide-react';
 
 import { globalStyles } from './styles';
 import {
@@ -9,23 +8,23 @@ import {
   ContentArea,
   Sidebar,
   StatusBar,
+  Navbar,
 } from './components/layout';
-import type { TabId } from './components/layout';
-import {
-  AttachPanel,
-  NativePanel,
-  MemoryPanel,
-  MethodsPanel,
-  ThreadPanel,
-  ConsolePanel,
-  SettingsPanel,
-  PlaceholderPanel,
-} from './components/panels';
+import { TabPages } from './pages/TabPages';
+import { AlertContainer } from './components/common';
 
 import { useFridaStore } from './features/frida';
+import { useUIStore } from './stores/uiStore';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<TabId>('attach');
+  // Use Zustand for tab state persistence
+  const { activeTab, setActiveTab } = useUIStore();
+  // Track attached process info for navbar display
+  const [attachedProcessInfo, setAttachedProcessInfo] = useState<{
+    name: string;
+    pid: number;
+    deviceName: string;
+  } | null>(null);
 
   const {
     busy,
@@ -46,8 +45,6 @@ function App() {
     spawn,
     resume,
     kill,
-    loadDefaultScript,
-    unloadScript,
     agentRequest,
   } = useFridaStore();
 
@@ -79,16 +76,28 @@ function App() {
     setSelectedDeviceId(deviceId);
   }, [clearError, setSelectedDeviceId]);
 
-  // Handle attach
+  // Handle attach - also store process info for navbar
   const handleAttach = useCallback(async (pid: number) => {
     clearError();
+    const process = processes.find(p => p.pid === pid);
+    const device = devices.find(d => d.id === selectedDeviceId);
+    
     await attach(pid);
-  }, [clearError, attach]);
+    
+    if (process && device) {
+      setAttachedProcessInfo({
+        name: process.name,
+        pid: process.pid,
+        deviceName: device.name,
+      });
+    }
+  }, [clearError, attach, processes, devices, selectedDeviceId]);
 
-  // Handle detach
+  // Handle detach - clear process info
   const handleDetach = useCallback(async () => {
     clearError();
     await detach();
+    setAttachedProcessInfo(null);
   }, [clearError, detach]);
 
   // Handle spawn
@@ -109,85 +118,43 @@ function App() {
     return await agentRequest(method, params);
   }, [hasScript, agentRequest]);
 
-  // Render active panel
-  const renderPanel = () => {
-    switch (activeTab) {
-      case 'attach':
-        return (
-          <AttachPanel
-            devices={devices}
-            processes={processes}
-            selectedDeviceId={selectedDeviceId}
-            sessionId={attachedSessionId}
-            scriptId={loadedScriptId}
-            busy={busy}
-            onDeviceChange={handleDeviceChange}
-            onRefreshDevices={refreshDevices}
-            onRefreshProcesses={() => refreshProcesses()}
-            onAttach={handleAttach}
-            onDetach={handleDetach}
-            onSpawn={handleSpawn}
-            onResume={resume}
-            onKill={kill}
-            onLoadScript={loadDefaultScript}
-            onUnloadScript={unloadScript}
-          />
-        );
-
-      case 'native':
-        return <NativePanel hasSession={hasScript} onRpcCall={handleRpcCall} />;
-
-      case 'memory':
-        return <MemoryPanel hasSession={hasScript} onRpcCall={handleRpcCall} />;
-
-      case 'methods':
-        return <MethodsPanel hasSession={hasScript} onRpcCall={handleRpcCall} />;
-
-      case 'thread':
-        return <ThreadPanel hasSession={hasScript} onRpcCall={handleRpcCall} />;
-
-      case 'objc':
-        return (
-          <PlaceholderPanel
-            title="Objective-C Runtime"
-            description="Explore Objective-C classes, methods, and runtime information."
-            icon={<GitBranch size={48} strokeWidth={1} />}
-          />
-        );
-
-      case 'swift':
-        return (
-          <PlaceholderPanel
-            title="Swift Runtime"
-            description="Inspect Swift types, protocols, and metadata."
-            icon={<Apple size={48} strokeWidth={1} />}
-          />
-        );
-
-      case 'java':
-        return (
-          <PlaceholderPanel
-            title="Java/Android Runtime"
-            description="Browse Java classes, hook methods, and trace execution."
-            icon={<Coffee size={48} strokeWidth={1} />}
-          />
-        );
-
-      case 'console':
-        return <ConsolePanel />;
-
-      case 'settings':
-        return <SettingsPanel fridaVersion={fridaVersion} />;
-
-      default:
-        return <PlaceholderPanel title="Unknown Tab" />;
-    }
-  };
+  // Render active tab page (migrated to src/pages/*)
+  const renderPanel = () => (
+    <TabPages
+      activeTab={activeTab}
+      devices={devices}
+      processes={processes}
+      selectedDeviceId={selectedDeviceId}
+      sessionId={attachedSessionId}
+      scriptId={loadedScriptId}
+      busy={busy}
+      onDeviceChange={handleDeviceChange}
+      onRefreshDevices={refreshDevices}
+      onRefreshProcesses={() => refreshProcesses()}
+      onAttach={handleAttach}
+      onDetach={handleDetach}
+      onSpawn={handleSpawn}
+      onResume={resume}
+      onKill={kill}
+      hasScript={hasScript}
+      onRpcCall={handleRpcCall}
+      fridaVersion={fridaVersion}
+    />
+  );
 
   return (
     <>
       <Global styles={globalStyles} />
+      <AlertContainer />
       <LayoutContainer>
+        <Navbar
+          processName={attachedProcessInfo?.name ?? null}
+          processPid={attachedProcessInfo?.pid ?? null}
+          deviceName={attachedProcessInfo?.deviceName ?? null}
+          scriptId={loadedScriptId}
+          busy={busy}
+          onDetach={handleDetach}
+        />
         <MainArea>
           <Sidebar
             activeTab={activeTab}

@@ -12,7 +12,6 @@ import {
   Cpu,
   ChevronRight,
   Settings2,
-  Zap,
 } from 'lucide-react';
 import { theme } from '../../styles';
 import type { DeviceInfo, ProcessInfo } from '../../features/frida/types';
@@ -38,21 +37,17 @@ const MainContent = styled.div`
   overflow: hidden;
 `;
 
-// Sidebar - Devices Panel (responsive)
+// Sidebar - Devices Panel (fixed width to prevent resize issues)
 const DevicesSidebar = styled.div`
-  width: ${theme.sidebar.panelWidth};
-  min-width: 200px;
-  max-width: 400px;
+  width: 280px;
+  min-width: 280px;
+  max-width: 280px;
   background: ${theme.colors.bg.secondary};
   border-right: 1px solid ${theme.colors.border.primary};
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  
-  @media (max-width: 800px) {
-    width: 200px;
-    min-width: 160px;
-  }
+  overflow: hidden;
 `;
 
 const SidebarHeader = styled.div`
@@ -412,25 +407,6 @@ const DetachBtn = styled.button`
   }
 `;
 
-const ScriptBtn = styled(motion.button)`
-  display: inline-flex;
-  align-items: center;
-  gap: ${theme.spacing.xs};
-  padding: ${theme.spacing.xs} ${theme.spacing.sm};
-  background: ${theme.colors.accent.muted};
-  border: 1px solid ${theme.colors.accent.primary};
-  border-radius: ${theme.borderRadius.md};
-  color: ${theme.colors.accent.primary};
-  font-size: ${theme.fontSize.xs};
-  cursor: pointer;
-  margin-left: ${theme.spacing.sm};
-  
-  &:hover {
-    background: ${theme.colors.accent.primary};
-    color: white;
-  }
-`;
-
 // Helper to get device icon
 function getDeviceIcon(type: string) {
   switch (type.toLowerCase()) {
@@ -456,8 +432,6 @@ type AttachPanelProps = {
   onSpawn: (program: string, argv: string[] | null) => Promise<number | null>;
   onResume: (pid: number) => void;
   onKill: (pid: number) => void;
-  onLoadScript: () => void;
-  onUnloadScript: () => void;
 };
 
 export function AttachPanel({
@@ -472,8 +446,6 @@ export function AttachPanel({
   onRefreshProcesses,
   onAttach,
   onDetach,
-  onLoadScript,
-  onUnloadScript,
 }: AttachPanelProps) {
   const [deviceSearch, setDeviceSearch] = useState('');
   const [processSearch, setProcessSearch] = useState('');
@@ -571,7 +543,7 @@ export function AttachPanel({
         <ProcessPanel>
           {selectedDevice ? (
             <>
-              {/* Attached Banner */}
+              {/* Attached Banner - simplified, script managed automatically */}
               {isAttached && attachedProcess && (
                 <AttachedBanner
                   initial={{ opacity: 0, y: -10 }}
@@ -584,18 +556,14 @@ export function AttachPanel({
                   <span style={{ color: theme.colors.text.muted, fontSize: theme.fontSize.xs }}>
                     {selectedDevice.name}
                   </span>
-                  
-                  {scriptId === null ? (
-                    <ScriptBtn onClick={onLoadScript} disabled={busy} whileTap={{ scale: 0.95 }}>
-                      <Zap size={12} />
-                      Load Script
-                    </ScriptBtn>
-                  ) : (
-                    <ScriptBtn onClick={onUnloadScript} disabled={busy} whileTap={{ scale: 0.95 }}>
-                      Script #{scriptId}
-                    </ScriptBtn>
+                  {scriptId !== null && (
+                    <>
+                      <span style={{ color: theme.colors.text.muted }}>•</span>
+                      <span style={{ color: theme.colors.accent.primary, fontSize: theme.fontSize.xs }}>
+                        Agent Ready
+                      </span>
+                    </>
                   )}
-                  
                   <DetachBtn onClick={onDetach} disabled={busy}>
                     Detach
                   </DetachBtn>

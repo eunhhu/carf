@@ -3,6 +3,7 @@ import styled from '@emotion/styled';
 import { motion } from 'framer-motion';
 import { theme } from '../../styles';
 import { PanelContainer, PanelContent, PanelSection, PanelSectionTitle } from '../common/Panel';
+import carfLogo from '../../assets/carf.svg';
 
 const SettingsCard = styled.div`
   padding: ${theme.spacing.md};
@@ -67,9 +68,9 @@ const AboutSection = styled.div`
   padding: ${theme.spacing.xl};
 `;
 
-const AppLogo = styled.div`
-  font-size: 48px;
-  margin-bottom: ${theme.spacing.md};
+const AppLogo = styled.img`
+  width: 48px;
+  height: 48px;
 `;
 
 const AppName = styled.h1`
@@ -112,7 +113,7 @@ export function SettingsPanel({ fridaVersion }: SettingsPanelProps) {
         {/* About */}
         <PanelSection>
           <AboutSection>
-            <AppLogo>🔬</AppLogo>
+            <AppLogo src={carfLogo} alt="CARF" />
             <AppName>CARF</AppName>
             <AppVersion>v0.1.0</AppVersion>
             <AppDescription>
