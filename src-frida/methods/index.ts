@@ -82,6 +82,15 @@ import {
   memoryScanAbort,
   memoryAccessMonitorEnable,
   memoryAccessMonitorDisable,
+  memoryValueScanStart,
+  memoryValueScanAbort,
+  memoryValueScanGet,
+  memoryValueScanNext,
+  memoryValueScanClear,
+  memoryWatchAdd,
+  memoryWatchRemove,
+  memoryWatchList,
+  memoryWatchClear,
 } from "./memory";
 
 // Advanced memory methods
@@ -296,6 +305,19 @@ export const methods: Record<string, MethodHandler> = {
   memory_scan_abort: memoryScanAbort,
   memory_access_monitor_enable: memoryAccessMonitorEnable,
   memory_access_monitor_disable: memoryAccessMonitorDisable,
+
+  // Memory - Value scan (debugging)
+  memory_value_scan_start: memoryValueScanStart,
+  memory_value_scan_abort: memoryValueScanAbort,
+  memory_value_scan_get: memoryValueScanGet,
+  memory_value_scan_next: memoryValueScanNext,
+  memory_value_scan_clear: memoryValueScanClear,
+
+  // Memory - Watch (debugging)
+  memory_watch_add: memoryWatchAdd,
+  memory_watch_remove: memoryWatchRemove,
+  memory_watch_list: memoryWatchList,
+  memory_watch_clear: memoryWatchClear,
 
   // Memory - Advanced
   memory_protect: memoryProtect,

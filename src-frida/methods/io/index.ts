@@ -12,7 +12,7 @@ export const fileReadAllText: MethodHandler = ({ params }) => {
 
   try {
     const file = new File(path, "r");
-    const content = file.readAllText();
+    const content = File.readAllText(path);
     file.close();
     return { path, content, size: content.length };
   } catch (e) {

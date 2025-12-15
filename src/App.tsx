@@ -18,7 +18,7 @@ import { useUIStore } from './stores/uiStore';
 
 function App() {
   // Use Zustand for tab state persistence
-  const { activeTab, setActiveTab } = useUIStore();
+  const { activeTab, setActiveTab, resetPanelStates } = useUIStore();
   // Track attached process info for navbar display
   const [attachedProcessInfo, setAttachedProcessInfo] = useState<{
     name: string;
@@ -65,7 +65,15 @@ function App() {
     if (attachedSessionId === null && activeTab !== 'attach' && activeTab !== 'console' && activeTab !== 'settings') {
       setActiveTab('attach');
     }
-  }, [attachedSessionId, activeTab]);
+  }, [attachedSessionId, activeTab, setActiveTab]);
+
+  // Clear UI state when session/script is detached unexpectedly
+  useEffect(() => {
+    if (attachedSessionId === null) {
+      setAttachedProcessInfo(null);
+      resetPanelStates();
+    }
+  }, [attachedSessionId, resetPanelStates]);
 
   const hasSession = attachedSessionId !== null;
   const hasScript = loadedScriptId !== null;

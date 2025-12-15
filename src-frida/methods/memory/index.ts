@@ -320,3 +320,13 @@ export const memoryAccessMonitorDisable: MethodHandler = () => {
     throw new Error(`Failed to disable memory access monitor: ${e}`);
   }
 };
+
+export {
+  memoryValueScanStart,
+  memoryValueScanAbort,
+  memoryValueScanGet,
+  memoryValueScanNext,
+  memoryValueScanClear,
+} from "./valueScan";
+
+export { memoryWatchAdd, memoryWatchRemove, memoryWatchList, memoryWatchClear } from "./watch";

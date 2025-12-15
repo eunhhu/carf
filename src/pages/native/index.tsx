@@ -112,7 +112,7 @@ export function NativePage({ hasSession, onRpcCall }: NativePageProps) {
     if (!hasSession) return;
     setLoading(true);
     try {
-      const result = await onRpcCall("enumerate_exports", { moduleName });
+      const result = await onRpcCall("enumerate_exports", { module: moduleName });
       setExports(result as ExportInfo[]);
     } catch (e) {
       console.error("Failed to load exports:", e);
@@ -125,7 +125,7 @@ export function NativePage({ hasSession, onRpcCall }: NativePageProps) {
     if (!hasSession) return;
     setLoading(true);
     try {
-      const result = await onRpcCall("enumerate_imports", { moduleName });
+      const result = await onRpcCall("enumerate_imports", { module: moduleName });
       setImports(result as ImportInfo[]);
     } catch (e) {
       console.error("Failed to load imports:", e);
