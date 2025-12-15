@@ -1,16 +1,16 @@
 import type { TabId } from '../components/layout';
 import type { DeviceInfo, ProcessInfo } from '../features/frida/types';
 
-import { AttachPage } from './attach/AttachPage';
-import { NativePage } from './native/NativePage';
-import { MemoryPage } from './memory/MemoryPage';
-import { MethodsPage } from './methods/MethodsPage';
-import { ThreadPage } from './thread/ThreadPage';
-import { ObjcPage } from './objc/ObjcPage';
-import { SwiftPage } from './swift/SwiftPage';
-import { JavaPage } from './java/JavaPage';
-import { ConsolePage } from './console/ConsolePage';
-import { SettingsPage } from './settings/SettingsPage';
+import { AttachPage } from './attach';
+import { NativePage } from './native';
+import { MemoryPage } from './memory';
+import { MethodsPage } from './methods';
+import { ThreadPage } from './thread';
+import { ObjcPage } from './objc';
+import { SwiftPage } from './swift';
+import { JavaPage } from './java';
+import { ConsolePage } from './console';
+import { SettingsPage } from './settings';
 
 type TabPagesProps = {
   activeTab: TabId;
@@ -93,13 +93,13 @@ export function TabPages({
       return <ThreadPage hasSession={hasScript} onRpcCall={onRpcCall} />;
 
     case 'objc':
-      return <ObjcPage />;
+      return <ObjcPage hasSession={hasScript} onRpcCall={onRpcCall} />;
 
     case 'swift':
-      return <SwiftPage />;
+      return <SwiftPage hasSession={hasScript} onRpcCall={onRpcCall} />;
 
     case 'java':
-      return <JavaPage />;
+      return <JavaPage hasSession={hasScript} onRpcCall={onRpcCall} />;
 
     case 'console':
       return <ConsolePage />;

@@ -11,7 +11,7 @@ import {
   Navbar,
 } from './components/layout';
 import { TabPages } from './pages/TabPages';
-import { AlertContainer } from './components/common';
+import { AlertContainer } from './components/ui';
 
 import { useFridaStore } from './features/frida';
 import { useUIStore } from './stores/uiStore';
