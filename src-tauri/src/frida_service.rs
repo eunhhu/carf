@@ -1,3 +1,4 @@
+use crate::error::{validate_no_nul, FridaError};
 use frida::{Device, DeviceManager, Frida, Message, Script, ScriptHandler, ScriptOption, Session, SpawnOptions};
 use serde::Serialize;
 use serde_json::json;
@@ -274,8 +275,10 @@ impl FridaContext {
 
         debug_log(&format!("list_processes: device_id={device_id}"));
 
-        if device_id == "socket" {
-            return Err("Device 'socket' is not supported".to_string());
+        // Skip devices that don't support process enumeration
+        if device_id == "socket" || device_id == "barebone" {
+            debug_log(&format!("list_processes: skipping unsupported device {device_id}"));
+            return Ok(Vec::new());
         }
 
         if let Some(cache) = self.process_list_cache.as_ref() {
@@ -299,7 +302,12 @@ impl FridaContext {
             device.get_type()
         ));
 
-        let processes = device.enumerate_processes();
+        // Wrap enumerate_processes in catch_unwind to prevent crashes from propagating
+        let processes = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            device.enumerate_processes()
+        }))
+        .map_err(|_| "enumerate_processes panicked - device may not support this operation".to_string())?;
+        
         debug_log(&format!(
             "list_processes: enumerated {} processes",
             processes.len()
@@ -493,22 +501,8 @@ impl FridaContext {
         let script_ptr = Box::into_raw(Box::new(script));
         debug_log("load_default_script: script leaked to heap");
 
-        debug_log("load_default_script: about to handle_message");
-        unsafe {
-            (*script_ptr)
-                .handle_message(TauriScriptHandler {
-                    app: self.app.clone(),
-                    session_id,
-                    script_id,
-                })
-                .map_err(|e| {
-                    // Clean up on failure
-                    let _ = Box::from_raw(script_ptr);
-                    e.to_string()
-                })?;
-        }
-        debug_log("load_default_script: handle_message succeeded");
-
+        // Load script FIRST, before registering message handler.
+        // This avoids the frida-rust bug where the callback pointer becomes dangling.
         debug_log("load_default_script: about to script.load()");
         unsafe {
             (*script_ptr).load().map_err(|e| {
@@ -518,6 +512,24 @@ impl FridaContext {
             })?;
         }
         debug_log("load_default_script: script.load() succeeded");
+
+        // Register message handler AFTER load succeeds.
+        debug_log("load_default_script: about to handle_message");
+        unsafe {
+            (*script_ptr)
+                .handle_message(TauriScriptHandler {
+                    app: self.app.clone(),
+                    session_id,
+                    script_id,
+                })
+                .map_err(|e| {
+                    // Try to unload on failure, but don't fail if unload fails
+                    let _ = (*script_ptr).unload();
+                    let _ = Box::from_raw(script_ptr);
+                    e.to_string()
+                })?;
+        }
+        debug_log("load_default_script: handle_message succeeded");
 
         debug_log("load_default_script: about to insert script record");
         self.scripts.insert(
@@ -660,16 +672,6 @@ impl FridaContext {
     }
 }
 
-fn validate_no_nul(label: &str, value: &str) -> Result<(), String> {
-    if value.contains('\0') {
-        return Err(format!(
-            "{label} contains a NUL (\\0) byte, which frida-rust APIs do not support"
-        ));
-    }
-
-    Ok(())
-}
-
 #[derive(Clone)]
 struct TauriScriptHandler {
     app: tauri::AppHandle,
@@ -725,7 +727,7 @@ impl ScriptHandler for TauriScriptHandler {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_no_nul;
+    use crate::error::validate_no_nul;
 
     #[test]
     fn validate_no_nul_allows_regular_strings() {

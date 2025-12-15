@@ -1,4 +1,5 @@
 mod commands;
+mod error;
 mod frida_service;
 mod input_service;
 

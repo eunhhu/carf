@@ -5,12 +5,12 @@ export function replyOk(id: number, returns: unknown) {
   send(payload);
 }
 
-export function replyError(id: number, message: string) {
+export function replyError(id: number, message: string, stack?: string) {
   const payload: RpcResponsePayload = {
     type: "carf:response",
     id,
     result: "error",
-    returns: { message },
+    returns: { message, stack },
   };
   send(payload);
 }

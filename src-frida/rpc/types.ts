@@ -23,6 +23,7 @@ export type RpcEventPayload = {
   returns: unknown;
 };
 
+// Method handler can be sync or async
 export type MethodHandler = (args: {
   params?: unknown;
-}) => unknown;
+}) => unknown | Promise<unknown>;
