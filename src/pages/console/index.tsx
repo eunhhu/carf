@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
   Terminal,
   Trash2,
@@ -27,9 +27,13 @@ import { Input } from "../../components/ui/Input";
 import { Tabs } from "../../components/ui/Tabs";
 import styled from "@emotion/styled";
 import { theme } from "../../styles";
+import {
+  useConsoleStore,
+  type LogLevel as ConsoleLogLevel,
+} from "../../stores/consoleStore";
 
 // ============================================================================
-// Types
+// Types (for backwards compatibility)
 // ============================================================================
 
 export type LogLevel = "log" | "info" | "warn" | "error" | "debug";
@@ -61,7 +65,7 @@ const LogContainer = styled.div`
   background: ${theme.colors.bg.primary};
 `;
 
-const LogLine = styled.div<{ $level: LogLevel }>`
+const LogLine = styled.div<{ $level: string }>`
   display: flex;
   align-items: flex-start;
   padding: 4px 12px;
@@ -76,6 +80,10 @@ const LogLine = styled.div<{ $level: LogLevel }>`
         return theme.colors.accent.primary;
       case "debug":
         return theme.colors.text.muted;
+      case "success":
+        return theme.colors.status.success;
+      case "event":
+        return theme.colors.accent.secondary;
       default:
         return theme.colors.text.primary;
     }
@@ -92,7 +100,7 @@ const LogTimestamp = styled.span`
   flex-shrink: 0;
 `;
 
-const LogLevel = styled.span<{ $level: LogLevel }>`
+const LogLevelBadge = styled.span<{ $level: string }>`
   width: 50px;
   flex-shrink: 0;
   text-transform: uppercase;
@@ -103,6 +111,16 @@ const LogMessage = styled.span`
   flex: 1;
   white-space: pre-wrap;
   word-break: break-all;
+`;
+
+const LogData = styled.pre`
+  margin: 4px 0 0 62px;
+  padding: 8px;
+  background: ${theme.colors.bg.tertiary};
+  border-radius: ${theme.borderRadius.sm};
+  font-size: ${theme.fontSize.xs};
+  color: ${theme.colors.text.secondary};
+  overflow-x: auto;
 `;
 
 const CommandInput = styled.div`
@@ -124,38 +142,122 @@ const CommandPrompt = styled.span`
 // ============================================================================
 
 export function ConsolePage({
-  logs = [],
-  onClear,
-  onExport,
+  logs: externalLogs,
+  onClear: externalOnClear,
+  onExport: externalOnExport,
   onCommand,
 }: ConsolePageProps) {
-  const [search, setSearch] = useState("");
-  const [paused, setPaused] = useState(false);
-  const [command, setCommand] = useState("");
-  const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("all");
-  const logContainerRef = useRef<HTMLDivElement>(null);
+  // Use consoleStore - get raw logs array (stable reference)
+  const rawLogs = useConsoleStore((state) => state.logs);
+  const isPaused = useConsoleStore((state) => state.isPaused);
+  const showJson = useConsoleStore((state) => state.showJson);
+  const filter = useConsoleStore((state) => state.filter);
+  const storeClear = useConsoleStore((state) => state.clear);
+  const pause = useConsoleStore((state) => state.pause);
+  const resume = useConsoleStore((state) => state.resume);
+  const exportLogs = useConsoleStore((state) => state.exportLogs);
+  const setSearchFilter = useConsoleStore((state) => state.setSearchFilter);
+  const startEventListener = useConsoleStore((state) => state.startEventListener);
 
+  const [command, setCommand] = useState("");
+  const [levelFilter, setLevelFilterLocal] = useState<ConsoleLogLevel | "all">("all");
+  const logContainerRef = useRef<HTMLDivElement>(null);
+  const eventListenerStarted = useRef(false);
+
+  // Start event listener on mount (only once)
+  useEffect(() => {
+    if (eventListenerStarted.current) return;
+    eventListenerStarted.current = true;
+    const unsubscribe = startEventListener();
+    return () => {
+      unsubscribe();
+      eventListenerStarted.current = false;
+    };
+  }, [startEventListener]);
+
+  // Use external logs if provided, otherwise use store logs
+  const logs = useMemo(() => {
+    if (externalLogs && externalLogs.length > 0) {
+      return externalLogs;
+    }
+    // Convert store logs to component format
+    return rawLogs.map((log) => ({
+      id: log.id,
+      timestamp: log.timestamp.getTime(),
+      level: log.level === "success" || log.level === "event" ? "info" : log.level as LogLevel,
+      message: log.message,
+      data: log.data,
+      _originalLevel: log.level, // Keep original level for display
+    }));
+  }, [externalLogs, rawLogs]);
+
+  // Filter logs by level (local filter for tab UI)
   const filteredLogs = useMemo(() => {
-    return logs.filter((log) => {
-      if (levelFilter !== "all" && log.level !== levelFilter) return false;
-      if (search && !log.message.toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    });
-  }, [logs, search, levelFilter]);
+    let result = logs;
+
+    // Apply level filter from tabs
+    if (levelFilter !== "all") {
+      result = result.filter((log) => {
+        const originalLevel = (log as { _originalLevel?: string })._originalLevel || log.level;
+        return originalLevel === levelFilter;
+      });
+    }
+
+    // Apply search filter
+    if (filter.search) {
+      const searchLower = filter.search.toLowerCase();
+      result = result.filter((log) =>
+        log.message.toLowerCase().includes(searchLower)
+      );
+    }
+
+    return result;
+  }, [logs, levelFilter, filter.search]);
 
   // Auto-scroll to bottom when new logs arrive (unless paused)
   useEffect(() => {
-    if (!paused && logContainerRef.current) {
+    if (!isPaused && logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
-  }, [filteredLogs, paused]);
+  }, [filteredLogs, isPaused]);
 
-  const handleCommand = () => {
+  const handleCommand = useCallback(() => {
     if (command.trim() && onCommand) {
       onCommand(command.trim());
       setCommand("");
     }
-  };
+  }, [command, onCommand]);
+
+  const handleClear = useCallback(() => {
+    if (externalOnClear) {
+      externalOnClear();
+    } else {
+      storeClear();
+    }
+  }, [externalOnClear, storeClear]);
+
+  const handleExport = useCallback(() => {
+    if (externalOnExport) {
+      externalOnExport();
+    } else {
+      const data = exportLogs();
+      const blob = new Blob([data], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `carf-console-${Date.now()}.log`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }, [externalOnExport, exportLogs]);
+
+  const handleTogglePause = useCallback(() => {
+    if (isPaused) {
+      resume();
+    } else {
+      pause();
+    }
+  }, [isPaused, pause, resume]);
 
   const formatTimestamp = (ts: number) => {
     const date = new Date(ts);
@@ -164,11 +266,12 @@ export function ConsolePage({
 
   const levelTabs = [
     { id: "all", label: "All" },
-    { id: "log", label: "Log" },
     { id: "info", label: "Info" },
     { id: "warn", label: "Warn" },
     { id: "error", label: "Error" },
     { id: "debug", label: "Debug" },
+    { id: "success", label: "Success" },
+    { id: "event", label: "Events" },
   ];
 
   return (
@@ -181,24 +284,22 @@ export function ConsolePage({
         </Flex>
         <PageActions>
           <IconButton
-            icon={paused ? Play : Pause}
+            icon={isPaused ? Play : Pause}
             size="sm"
-            onClick={() => setPaused(!paused)}
-            tooltip={paused ? "Resume" : "Pause"}
+            onClick={handleTogglePause}
+            tooltip={isPaused ? "Resume" : "Pause"}
           />
           <IconButton
             icon={Download}
             size="sm"
-            onClick={onExport}
+            onClick={handleExport}
             tooltip="Export logs"
-            disabled={!onExport}
           />
           <IconButton
             icon={Trash2}
             size="sm"
-            onClick={onClear}
+            onClick={handleClear}
             tooltip="Clear logs"
-            disabled={!onClear}
           />
         </PageActions>
       </PageHeader>
@@ -207,12 +308,16 @@ export function ConsolePage({
         <Tabs
           items={levelTabs}
           value={levelFilter}
-          onChange={(v) => setLevelFilter(v as LogLevel | "all")}
+          onChange={(v) => setLevelFilterLocal(v as ConsoleLogLevel | "all")}
           size="sm"
           variant="pills"
         />
         <ToolbarSpacer />
-        <ToolbarSearch value={search} onChange={setSearch} placeholder="Filter logs..." />
+        <ToolbarSearch
+          value={filter.search}
+          onChange={setSearchFilter}
+          placeholder="Filter logs..."
+        />
         <ToolbarCount total={logs.length} filtered={filteredLogs.length} />
       </Toolbar>
 
@@ -223,13 +328,21 @@ export function ConsolePage({
             <Text $color="muted" style={{ marginTop: 8 }}>No logs to display</Text>
           </Flex>
         ) : (
-          filteredLogs.map((log) => (
-            <LogLine key={log.id} $level={log.level}>
-              <LogTimestamp>{formatTimestamp(log.timestamp)}</LogTimestamp>
-              <LogLevel $level={log.level}>[{log.level}]</LogLevel>
-              <LogMessage>{log.message}</LogMessage>
-            </LogLine>
-          ))
+          filteredLogs.map((log) => {
+            const originalLevel = (log as { _originalLevel?: string })._originalLevel || log.level;
+            return (
+              <div key={log.id}>
+                <LogLine $level={originalLevel}>
+                  <LogTimestamp>{formatTimestamp(log.timestamp)}</LogTimestamp>
+                  <LogLevelBadge $level={originalLevel}>[{originalLevel}]</LogLevelBadge>
+                  <LogMessage>{log.message}</LogMessage>
+                </LogLine>
+                {showJson && log.data !== undefined && (
+                  <LogData>{JSON.stringify(log.data, null, 2)}</LogData>
+                )}
+              </div>
+            );
+          })
         )}
       </LogContainer>
 

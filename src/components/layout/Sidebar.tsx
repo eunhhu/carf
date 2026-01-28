@@ -11,6 +11,8 @@ import {
   Apple,
   Terminal,
   Settings,
+  BookOpen,
+  PanelRightClose,
 } from 'lucide-react';
 import { theme } from '../../styles';
 
@@ -97,13 +99,33 @@ const BottomTabs = styled.div`
   padding: ${theme.spacing.sm} 0;
 `;
 
+const PanelToggle = styled(motion.button)<{ $active: boolean }>`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 44px;
+  color: ${({ $active }) => ($active ? theme.colors.accent.primary : theme.colors.text.muted)};
+  background: ${({ $active }) => ($active ? theme.colors.accent.muted : 'transparent')};
+  cursor: pointer;
+  transition: all ${theme.transition.fast};
+  border: none;
+
+  &:hover {
+    color: ${({ $active }) => ($active ? theme.colors.accent.primary : theme.colors.text.primary)};
+    background: ${({ $active }) => ($active ? theme.colors.accent.muted : theme.colors.bg.tertiary)};
+  }
+`;
+
 type SidebarProps = {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
   hasSession: boolean;
+  onToggleLibrary?: () => void;
+  libraryOpen?: boolean;
 };
 
-export function Sidebar({ activeTab, onTabChange, hasSession }: SidebarProps) {
+export function Sidebar({ activeTab, onTabChange, hasSession, onToggleLibrary, libraryOpen }: SidebarProps) {
   const mainTabs = TABS.filter((t) => t.id !== 'console' && t.id !== 'settings');
   const bottomTabs = TABS.filter((t) => t.id === 'console' || t.id === 'settings');
 
@@ -124,6 +146,17 @@ export function Sidebar({ activeTab, onTabChange, hasSession }: SidebarProps) {
         })}
       </TabList>
       <BottomTabs>
+        {/* Library panel toggle */}
+        {onToggleLibrary && (
+          <PanelToggle
+            $active={!!libraryOpen}
+            onClick={onToggleLibrary}
+            whileTap={{ scale: 0.95 }}
+            title={libraryOpen ? 'Hide Library' : 'Show Library'}
+          >
+            {libraryOpen ? <PanelRightClose size={18} /> : <BookOpen size={18} />}
+          </PanelToggle>
+        )}
         {bottomTabs.map((tab) => (
           <TabItem
             key={tab.id}

@@ -80,3 +80,30 @@ export type { ModalProps } from "./Modal";
 
 // Alert components
 export { AlertContainer } from "./Alert";
+
+// Resizable Panel components
+export {
+  Panel,
+  PanelGroup,
+  StyledPanelGroup,
+  HorizontalResizeHandle,
+  VerticalResizeHandle,
+  PanelContent,
+  PanelHeader,
+  PanelTitle,
+  PanelActions,
+  SidePanel,
+  BottomPanel,
+} from "./ResizablePanel";
+
+// Context Menu components
+export { ContextMenu, ContextMenuTrigger, useContextMenu } from "./ContextMenu";
+export type { ContextMenuItem, ContextMenuItemOrSeparator } from "./ContextMenu";
+
+// TreeView components
+export { TreeView, flattenTree, findNodeById, getParentIds } from "./TreeView";
+export type { TreeNode } from "./TreeView";
+
+// Command Palette
+export { CommandPalette } from "./CommandPalette";
+export type { CommandItem } from "./CommandPalette";
