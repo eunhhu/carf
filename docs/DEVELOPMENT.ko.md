@@ -1,19 +1,19 @@
-# CARF Development Guide
+# CARF 개발 가이드
 
-This document provides development environment setup and development guide for CARF.
+이 문서는 CARF 개발 환경 설정 및 개발 가이드를 제공합니다.
 
-[한국어](DEVELOPMENT.ko.md)
+[English](DEVELOPMENT.md)
 
-## Development Environment Setup
+## 개발 환경 설정
 
-### Requirements
+### 필수 요구사항
 
 1. **Node.js / Bun**
    ```bash
-   # Install Bun (recommended)
+   # Bun 설치 (권장)
    curl -fsSL https://bun.sh/install | bash
 
-   # Or use npm/pnpm
+   # 또는 npm/pnpm 사용 가능
    ```
 
 2. **Rust**
@@ -27,83 +27,83 @@ This document provides development environment setup and development guide for C
    cargo install tauri-cli
    ```
 
-4. **Frida (optional - for agent compilation)**
+4. **Frida (선택사항 - 에이전트 컴파일용)**
    ```bash
    npm install -g frida-compile
    ```
 
-### Project Setup
+### 프로젝트 설정
 
 ```bash
-# Clone repository
+# 저장소 클론
 git clone https://github.com/eunhhu/carf.git
 cd carf
 
-# Install dependencies
+# 의존성 설치
 bun install
 
-# Rust dependencies (handled automatically)
+# Rust 의존성 (자동으로 처리됨)
 cd src-tauri && cargo build
 ```
 
-## Development Mode
+## 개발 모드
 
-### Browser-only Mode (UI Development)
+### 브라우저 전용 모드 (UI 개발)
 
-Run in browser only without Tauri. Frida features are disabled but suitable for UI development.
+Tauri 없이 브라우저에서만 실행합니다. Frida 기능은 비활성화되지만 UI 개발에 적합합니다.
 
 ```bash
 bun run dev
-# Check at http://localhost:1420
+# http://localhost:1420 에서 확인
 ```
 
-In this mode:
-- Tauri API calls fail gracefully
-- Frida version: displayed as "N/A (Browser)"
-- All UI features can be tested
+이 모드에서:
+- Tauri API 호출은 graceful하게 실패
+- Frida 버전: "N/A (Browser)"로 표시
+- 모든 UI 기능 테스트 가능
 
-### Tauri Development Mode (Full Features)
+### Tauri 개발 모드 (전체 기능)
 
 ```bash
 bun run tauri dev
 ```
 
-In this mode:
-- Full Frida features available
-- Hot reload supported
-- DevTools available (F12)
+이 모드에서:
+- 전체 Frida 기능 사용 가능
+- Hot reload 지원
+- DevTools 사용 가능 (F12)
 
-### Frida Agent Development
+### Frida 에이전트 개발
 
-When modifying agent code:
+에이전트 코드 수정 시:
 
 ```bash
-# Compile agent (not watch mode)
+# 에이전트 컴파일 (watch 모드 아님)
 bun run compile:tools
 
-# Or auto-compile when running dev server
+# 또는 개발 서버 실행 시 자동 컴파일
 bun run dev
 ```
 
-## Project Structure
+## 프로젝트 구조
 
 ```
 carf/
-├── src/                    # React frontend
+├── src/                    # React 프론트엔드
 ├── src-frida/              # Frida Agent
 ├── src-tauri/              # Tauri Backend (Rust)
-├── docs/                   # Documentation
-├── public/                 # Static files
-└── scripts/                # Build scripts
+├── docs/                   # 문서
+├── public/                 # 정적 파일
+└── scripts/                # 빌드 스크립트
 ```
 
-## Code Style
+## 코드 스타일
 
 ### TypeScript/React
 
-- **Formatter**: Prettier (default settings)
-- **Linter**: None (ESLint to be added)
-- **Import order**:
+- **Formatter**: Prettier (설정 없음, 기본값)
+- **Linter**: 없음 (추후 ESLint 추가 예정)
+- **Import 순서**:
   1. React imports
   2. Third-party libraries
   3. Local components
@@ -112,7 +112,7 @@ carf/
   6. Styles
 
 ```typescript
-// Example
+// 예시
 import { useState, useEffect } from 'react';
 import styled from '@emotion/styled';
 import { Search } from 'lucide-react';
@@ -129,23 +129,23 @@ import { theme } from '../../styles';
 - **Linter**: `cargo clippy`
 
 ```bash
-# Formatting
+# 포맷팅
 cd src-tauri && cargo fmt
 
-# Lint
+# 린트
 cd src-tauri && cargo clippy
 ```
 
-## Component Writing Guide
+## 컴포넌트 작성 가이드
 
-### UI Components
+### UI 컴포넌트
 
 ```typescript
 // src/components/ui/Button.tsx
 import styled from '@emotion/styled';
 import { theme } from '../../styles';
 
-// Props type definition
+// Props 타입 정의
 interface ButtonProps {
   variant?: 'primary' | 'secondary' | 'danger';
   size?: 'sm' | 'md' | 'lg';
@@ -159,7 +159,7 @@ const StyledButton = styled.button<{ $variant: string; $size: string }>`
   // styles...
 `;
 
-// Component
+// 컴포넌트
 export function Button({
   variant = 'primary',
   size = 'md',
@@ -180,7 +180,7 @@ export function Button({
 }
 ```
 
-### Page Components
+### 페이지 컴포넌트
 
 ```typescript
 // src/pages/example/index.tsx
@@ -218,7 +218,7 @@ export function ExamplePage({ ...props }: ExamplePageProps) {
 }
 ```
 
-### Zustand Stores
+### Zustand 스토어
 
 ```typescript
 // src/stores/exampleStore.ts
@@ -261,17 +261,17 @@ export const useExampleStore = create<ExampleState & ExampleActions>()(
 );
 ```
 
-## Frida Agent Development
+## Frida Agent 개발
 
-### Adding New RPC Methods
+### 새 RPC 메소드 추가
 
-1. **Create/modify method file**
+1. **메소드 파일 생성/수정**
 
 ```typescript
 // src-frida/methods/example.ts
 export const exampleMethods = {
   'example.getData': () => {
-    // Use Frida API
+    // Frida API 사용
     return {
       timestamp: Date.now(),
       data: 'example',
@@ -279,13 +279,13 @@ export const exampleMethods = {
   },
 
   'example.process': (params: { input: string }) => {
-    // Use params
+    // params 사용
     return params.input.toUpperCase();
   },
 };
 ```
 
-2. **Register in router**
+2. **Router에 등록**
 
 ```typescript
 // src-frida/methods/index.ts
@@ -294,25 +294,25 @@ import { exampleMethods } from './example';
 export const allMethods = {
   ...nativeMethods,
   ...memoryMethods,
-  ...exampleMethods,  // Add
+  ...exampleMethods,  // 추가
 };
 ```
 
-3. **Call from frontend**
+3. **Frontend에서 호출**
 
 ```typescript
-// Use in page
+// 페이지에서 사용
 const result = await agentRequest('example.getData');
 const processed = await agentRequest('example.process', { input: 'hello' });
 ```
 
-### Agent Debugging
+### 에이전트 디버깅
 
 ```typescript
-// Logging in agent
-console.log('Debug:', data);  // Displayed in CARF Console
+// 에이전트 내에서 로깅
+console.log('Debug:', data);  // CARF Console에 표시됨
 
-// Send event with send()
+// send()로 이벤트 전송
 send({
   type: 'carf:event',
   payload: {
@@ -322,115 +322,115 @@ send({
 });
 ```
 
-## Testing
+## 테스트
 
-### Manual Testing
+### 수동 테스트
 
-1. **Browser mode**: UI feature testing
-2. **Tauri mode**: Full feature testing
-3. **Target process**: Test by connecting to actual app
+1. **브라우저 모드**: UI 기능 테스트
+2. **Tauri 모드**: 전체 기능 테스트
+3. **타겟 프로세스**: 실제 앱에 연결하여 테스트
 
-### Automated Testing (TODO)
+### 자동 테스트 (TODO)
 
 ```bash
-# No tests currently - to be added
+# 현재 테스트 없음 - 추가 예정
 bun test
 ```
 
-## Build
+## 빌드
 
-### Development Build
+### 개발 빌드
 
 ```bash
-# Frontend only
+# Frontend만
 bun run build
 
-# Tauri app (Debug)
+# Tauri 앱 (Debug)
 bun run tauri build --debug
 ```
 
-### Production Build
+### 프로덕션 빌드
 
 ```bash
-# Tauri app (Release)
+# Tauri 앱 (Release)
 bun run tauri build
 ```
 
-Build output locations:
+빌드 결과물 위치:
 - macOS: `src-tauri/target/release/bundle/dmg/`
 - Windows: `src-tauri/target/release/bundle/msi/`
 - Linux: `src-tauri/target/release/bundle/deb/`
 
-## Troubleshooting
+## 트러블슈팅
 
-### Common Issues
+### 일반적인 문제
 
-1. **Tauri build fails**
+1. **Tauri 빌드 실패**
    ```bash
-   # Update Rust
+   # Rust 업데이트
    rustup update stable
 
-   # Clean dependencies
+   # 의존성 정리
    cd src-tauri && cargo clean && cargo build
    ```
 
-2. **Frida agent compilation fails**
+2. **Frida 에이전트 컴파일 실패**
    ```bash
-   # Reinstall frida-compile
+   # frida-compile 재설치
    npm install -g frida-compile
 
-   # Install TypeScript types
+   # TypeScript 타입 설치
    bun add -D @types/frida-gum
    ```
 
-3. **Tauri API errors in browser**
-   - This is normal behavior. Tauri API is disabled in browser mode.
-   - Only warnings are shown in console, app works normally.
+3. **브라우저에서 Tauri API 에러**
+   - 정상 동작입니다. 브라우저 모드에서는 Tauri API가 비활성화됩니다.
+   - 콘솔에 경고만 표시되고 앱은 정상 작동합니다.
 
-4. **Hot Reload not working**
+4. **Hot Reload 작동 안 함**
    ```bash
-   # Delete Vite cache
+   # Vite 캐시 삭제
    rm -rf node_modules/.vite
    bun run dev
    ```
 
-### Debugging
+### 디버깅
 
-1. **Frontend debugging**
-   - Browser DevTools (F12)
-   - React DevTools extension
+1. **Frontend 디버깅**
+   - 브라우저 DevTools (F12)
+   - React DevTools 확장
 
-2. **Backend debugging**
+2. **Backend 디버깅**
    ```bash
-   # Enable Rust logs
+   # Rust 로그 활성화
    RUST_LOG=debug bun run tauri dev
    ```
 
-3. **Agent debugging**
-   - console.log() → Displayed in CARF Console
-   - Test directly with Frida CLI: `frida -p <pid> -l src-frida/dist/index.js`
+3. **Agent 디버깅**
+   - console.log() → CARF Console에 표시
+   - Frida CLI로 직접 테스트: `frida -p <pid> -l src-frida/dist/index.js`
 
 ## Git Workflow
 
-### Branch Strategy
+### 브랜치 전략
 
-- `main`: Stable version
-- `feature/*`: Feature development
-- `fix/*`: Bug fixes
+- `main`: 안정 버전
+- `feature/*`: 기능 개발
+- `fix/*`: 버그 수정
 
-### Commit Messages
+### 커밋 메시지
 
 ```
 <type>(<scope>): <description>
 
 Types:
-- feat: New feature
-- fix: Bug fix
-- docs: Documentation changes
-- style: Formatting
-- refactor: Refactoring
-- test: Tests
-- chore: Build/tools
+- feat: 새 기능
+- fix: 버그 수정
+- docs: 문서 변경
+- style: 포맷팅
+- refactor: 리팩토링
+- test: 테스트
+- chore: 빌드/도구
 
 Example:
 feat(memory): add memory scan feature
@@ -438,7 +438,7 @@ fix(ui): resolve panel resize issue
 docs(readme): update installation guide
 ```
 
-## Contributing Guide
+## 기여 가이드
 
 1. Fork the repository
 2. Create feature branch: `git checkout -b feature/amazing-feature`
@@ -448,9 +448,9 @@ docs(readme): update installation guide
 6. Push: `git push origin feature/amazing-feature`
 7. Open Pull Request
 
-### PR Checklist
+### PR 체크리스트
 
-- [ ] Code builds successfully
-- [ ] Existing features are not broken
-- [ ] Documentation added for new features (if needed)
-- [ ] Commit messages follow conventions
+- [ ] 코드가 정상적으로 빌드됨
+- [ ] 기존 기능이 깨지지 않음
+- [ ] 새 기능에 대한 문서 추가 (필요시)
+- [ ] 커밋 메시지가 규칙을 따름

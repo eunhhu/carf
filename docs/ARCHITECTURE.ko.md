@@ -1,16 +1,16 @@
-# CARF Architecture
+# CARF 아키텍처
 
-This document describes the system architecture of CARF.
+이 문서는 CARF의 시스템 아키텍처를 설명합니다.
 
-[한국어](ARCHITECTURE.ko.md)
+[English](ARCHITECTURE.md)
 
-## Overview
+## 개요
 
-CARF consists of a 3-tier architecture:
+CARF는 3계층 아키텍처로 구성됩니다:
 
-1. **Frontend (React)** - User interface
-2. **Backend (Tauri/Rust)** - System integration and Frida management
-3. **Agent (TypeScript)** - Code executed inside the target process
+1. **Frontend (React)** - 사용자 인터페이스
+2. **Backend (Tauri/Rust)** - 시스템 통합 및 Frida 관리
+3. **Agent (TypeScript)** - 타겟 프로세스 내 실행 코드
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -74,9 +74,9 @@ CARF consists of a 3-tier architecture:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-## Frontend Architecture
+## Frontend 아키텍처
 
-### Directory Structure
+### 디렉토리 구조
 
 ```
 src/
@@ -135,10 +135,10 @@ src/
     └── global.ts        # Global styles
 ```
 
-### State Management (Zustand)
+### 상태 관리 (Zustand)
 
 ```typescript
-// Store responsibilities
+// 스토어별 책임
 
 // fridaStore - Frida session/script state
 useFridaStore: {
@@ -175,7 +175,7 @@ useConsoleStore: {
 }
 ```
 
-### Component Structure
+### 컴포넌트 구조
 
 ```
 App.tsx
@@ -200,9 +200,9 @@ App.tsx
 │           └── StatusBar
 ```
 
-## Backend Architecture (Rust)
+## Backend 아키텍처 (Rust)
 
-### Directory Structure
+### 디렉토리 구조
 
 ```
 src-tauri/src/
@@ -219,7 +219,7 @@ src-tauri/src/
     └── mod.rs
 ```
 
-### Tauri Commands
+### Tauri 커맨드
 
 ```rust
 // Frida commands
@@ -252,18 +252,18 @@ pub fn load_library() -> Result<String, String>;
 pub fn save_library(data: String) -> Result<(), String>;
 ```
 
-### Events
+### 이벤트
 
 ```rust
-// Backend → Frontend events
-"frida_session_attached"  // Session attached
-"frida_session_detached"  // Session detached
-"frida_script_message"    // Script message
+// Backend → Frontend 이벤트
+"frida_session_attached"  // 세션 연결됨
+"frida_session_detached"  // 세션 해제됨
+"frida_script_message"    // 스크립트 메시지
 ```
 
-## Agent Architecture (TypeScript)
+## Agent 아키텍처 (TypeScript)
 
-### Directory Structure
+### 디렉토리 구조
 
 ```
 src-frida/
@@ -281,7 +281,7 @@ src-frida/
     └── index.js         # Compiled agent
 ```
 
-### RPC Protocol
+### RPC 프로토콜
 
 ```typescript
 // Request (Frontend → Agent)
@@ -314,7 +314,7 @@ src-frida/
 }
 ```
 
-### Method Categories
+### 메소드 카테고리
 
 ```typescript
 // Native methods
@@ -348,9 +348,9 @@ thread.setContext(threadId, context)
 thread.backtrace(threadId)
 ```
 
-## Data Flow
+## 데이터 흐름
 
-### Process Attachment Flow
+### 프로세스 연결 흐름
 
 ```
 1. User clicks "Attach"
@@ -377,7 +377,7 @@ thread.backtrace(threadId)
 8. UI re-renders with new session state
 ```
 
-### RPC Call Flow
+### RPC 호출 흐름
 
 ```
 1. Page calls useFridaStore.agentRequest(method, params)
@@ -410,19 +410,19 @@ thread.backtrace(threadId)
 10. Page receives data and updates UI
 ```
 
-## Security Considerations
+## 보안 고려사항
 
-1. **Tauri Security**
-   - CSP (Content Security Policy) configuration
-   - File system access restrictions
-   - IPC command permission management
+1. **Tauri 보안**
+   - CSP (Content Security Policy) 설정
+   - 파일 시스템 접근 제한
+   - IPC 커맨드 권한 관리
 
-2. **Agent Security**
-   - Runs inside target process, requires caution
-   - Prevent logging of sensitive data
-   - Safe memory access
+2. **Agent 보안**
+   - 타겟 프로세스 내 실행되므로 주의 필요
+   - 민감한 데이터 로깅 방지
+   - 안전한 메모리 접근
 
-3. **User Data**
-   - Library data stored in local files
-   - Settings stored in LocalStorage
-   - No remote transmission
+3. **사용자 데이터**
+   - 라이브러리 데이터는 로컬 파일에 저장
+   - 설정은 LocalStorage에 저장
+   - 원격 전송 없음
