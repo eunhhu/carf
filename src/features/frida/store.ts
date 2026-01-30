@@ -129,6 +129,9 @@ export const useFridaStore = create<StoreState & StoreActions>((set, get) => ({
     };
 
     const onDetached = (_p: SessionDetachedEvent) => {
+      // Clear pending RPC requests on detach to prevent stale promises
+      agentRpc.clearPending();
+
       set({
         attachedSessionId: null,
         loadedScriptId: null,

@@ -16,6 +16,7 @@ import { TabPages } from './pages/TabPages';
 import { AlertContainer, CommandPalette, type CommandItem } from './components/ui';
 import { LibraryPanel } from './components/panels/LibraryPanel';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 import { useFridaStore } from './features/frida';
 import { useUIStore } from './stores/uiStore';
@@ -239,14 +240,20 @@ function AppContent() {
       const process = processes.find((p) => p.pid === pid);
       const device = devices.find((d) => d.id === selectedDeviceId);
 
-      await attach(pid);
+      try {
+        await attach(pid);
 
-      if (process && device) {
-        setAttachedProcessInfo({
-          name: process.name,
-          pid: process.pid,
-          deviceName: device.name,
-        });
+        if (process && device) {
+          setAttachedProcessInfo({
+            name: process.name,
+            pid: process.pid,
+            deviceName: device.name,
+          });
+        }
+      } catch (err) {
+        // Error is already handled by withErrorHandling in the store
+        // Just log it here to prevent unhandled promise rejection
+        console.error('Attach failed:', err);
       }
     },
     [clearError, attach, processes, devices, selectedDeviceId]
@@ -550,9 +557,11 @@ function AppContent() {
 
 function App() {
   return (
-    <ThemeProvider>
-      <AppContent />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

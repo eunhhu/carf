@@ -75,6 +75,7 @@ function normalizeError(returns: unknown): Error {
 export type AgentRpc = {
   start: () => Promise<void>;
   stop: () => void;
+  clearPending: () => void;
   request: (scriptId: number, method: string, params?: unknown) => Promise<unknown>;
   onEvent: (handler: EventHandler) => () => void;
 };
@@ -130,6 +131,15 @@ export const agentRpc: AgentRpc = {
     pending.clear();
 
     fn();
+  },
+
+  // Clear pending requests without stopping listeners (called on session detach)
+  clearPending: () => {
+    pending.forEach((req) => {
+      clearTimeout(req.timer);
+      req.reject(new Error("Session detached"));
+    });
+    pending.clear();
   },
 
   request: async (scriptId, method, params) => {

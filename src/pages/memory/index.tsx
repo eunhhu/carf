@@ -156,7 +156,7 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
     const pendingAction = consumePendingAction();
     if (pendingAction && pendingAction.type === 'read_memory') {
       setReadAddress(pendingAction.target.address);
-      tabs.onChange('read');
+      tabs.onChange('hex');
       // Auto-trigger read after setting address
       setTimeout(() => {
         if (hasSession && pendingAction.target.address) {
@@ -164,6 +164,7 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
         }
       }, 100);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Context menu for addresses
@@ -287,7 +288,8 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
       .catch(() => {
         // ignore
       });
-  }, [hasSession, onRpcCall]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasSession]);
 
   const readValueForAddress = async (address: string): Promise<string> => {
     if (scanValueType === "utf8") {
