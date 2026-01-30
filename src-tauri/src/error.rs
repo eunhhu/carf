@@ -52,6 +52,7 @@ pub enum FridaError {
 
 /// Serializable error response for frontend
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct ErrorResponse {
     pub code: String,
     pub message: String,

@@ -1,11 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
 import type { DeviceInfo, ProcessInfo, ScriptInfo, SessionInfo } from "./types";
-
-// Check if running in Tauri environment
-const isTauri = () => {
-  return typeof window !== "undefined" && "__TAURI__" in window;
-};
 
 // Safe invoke that returns empty/default values in non-Tauri environment
 async function safeInvoke<T>(command: string, args?: Record<string, unknown>, fallback?: T): Promise<T> {

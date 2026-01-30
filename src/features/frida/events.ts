@@ -1,11 +1,7 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { ScriptMessageEvent, SessionAttachedEvent, SessionDetachedEvent } from "./types";
-
-// Check if running in Tauri environment
-const isTauri = () => {
-  return typeof window !== "undefined" && "__TAURI__" in window;
-};
 
 // No-op unlisten function for non-Tauri environments
 const noopUnlisten: UnlistenFn = () => {};

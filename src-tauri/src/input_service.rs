@@ -94,7 +94,7 @@ fn translate_key_event(event: Event) -> Option<GlobalKeyEvent> {
     Some(GlobalKeyEvent {
         action,
         key: format!("{:?}", key),
-        name: event.name,
+        name: event.unicode.and_then(|u| u.name),
         modifiers: counters.snapshot(),
     })
 }

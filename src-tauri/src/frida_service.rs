@@ -1,4 +1,4 @@
-use crate::error::{validate_no_nul, FridaError};
+use crate::error::validate_no_nul;
 use frida::{Device, DeviceManager, Frida, Message, Script, ScriptHandler, ScriptOption, Session, SpawnOptions};
 use serde::Serialize;
 use serde_json::json;

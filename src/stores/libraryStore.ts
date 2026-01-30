@@ -1,10 +1,10 @@
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { create } from 'zustand';
 
 // Safe invoke wrapper that works in browser without Tauri
 const safeInvoke = async <T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> => {
   // Check if we're in Tauri environment
-  if (typeof window !== 'undefined' && '__TAURI__' in window) {
-    const { invoke } = await import('@tauri-apps/api/core');
+  if (isTauri()) {
     return invoke<T>(cmd, args);
   }
   // Fallback for browser-only mode - silent in non-Tauri environment
