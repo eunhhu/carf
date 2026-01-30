@@ -22,6 +22,7 @@ import { useUIStore } from './stores/uiStore';
 import { useLayoutStore } from './stores/layoutStore';
 import { useLibraryStore } from './stores/libraryStore';
 import { useGlobalShortcuts } from './hooks/useKeyboardShortcuts';
+import { setTabSwitchCallback } from './stores/actionStore';
 
 // Styled components for the new layout
 const ContentWrapper = styled.div`
@@ -181,6 +182,11 @@ function AppContent() {
   useEffect(() => {
     init().catch(console.error);
   }, [init]);
+
+  // Connect action store's tab switch callback
+  useEffect(() => {
+    setTabSwitchCallback(setActiveTab);
+  }, [setActiveTab]);
 
   const { loadLibrary, initialized: libraryInitialized } = useLibraryStore();
   useEffect(() => {

@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Cpu, Package, FileCode, RefreshCw, Copy } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
+import { Cpu, Package, FileCode, RefreshCw, Copy, Eye, Bookmark } from "lucide-react";
 import {
   PageContainer,
   PageHeader,
@@ -28,6 +28,9 @@ import {
   TableCell,
   EmptyState,
 } from "../../components/ui/Table";
+import { ContextMenu, useContextMenu, type ContextMenuItemOrSeparator } from "../../components/ui/ContextMenu";
+import { useActionStore, buildFunctionContextMenu } from "../../stores/actionStore";
+import { useLibraryStore } from "../../stores/libraryStore";
 
 // ============================================================================
 // Types
@@ -150,6 +153,83 @@ export function NativePage({ hasSession, onRpcCall }: NativePageProps) {
     navigator.clipboard.writeText(text);
   };
 
+  // Context menu for exports
+  const exportContextMenu = useContextMenu();
+  const [contextMenuItems, setContextMenuItems] = useState<ContextMenuItemOrSeparator[]>([]);
+
+  const handleExportContextMenu = useCallback(
+    (e: React.MouseEvent, exp: ExportInfo) => {
+      const items = buildFunctionContextMenu(
+        exp.name,
+        exp.address,
+        selectedModule?.name,
+        hasSession
+      );
+      setContextMenuItems(items);
+      exportContextMenu.show(e, exp);
+    },
+    [exportContextMenu, selectedModule, hasSession]
+  );
+
+  // Context menu for modules
+  const moduleContextMenu = useContextMenu();
+  const [moduleMenuItems, setModuleMenuItems] = useState<ContextMenuItemOrSeparator[]>([]);
+
+  const handleModuleContextMenu = useCallback(
+    (e: React.MouseEvent, module: ModuleInfo) => {
+      const items: ContextMenuItemOrSeparator[] = [
+        {
+          id: 'copy-base',
+          label: 'Copy Base Address',
+          icon: Copy,
+          onSelect: () => navigator.clipboard.writeText(module.base),
+        },
+        {
+          id: 'copy-name',
+          label: 'Copy Module Name',
+          icon: Copy,
+          onSelect: () => navigator.clipboard.writeText(module.name),
+        },
+        {
+          id: 'copy-path',
+          label: 'Copy Path',
+          icon: Copy,
+          onSelect: () => navigator.clipboard.writeText(module.path),
+        },
+        { type: 'separator' },
+        {
+          id: 'view-memory',
+          label: 'View in Memory',
+          icon: Eye,
+          disabled: !hasSession,
+          onSelect: () => {
+            useActionStore.getState().navigateToMemory(module.base, module.name);
+          },
+        },
+        { type: 'separator' },
+        {
+          id: 'add-to-library',
+          label: 'Add to Library',
+          icon: Bookmark,
+          onSelect: () => {
+            useLibraryStore.getState().addEntry({
+              type: 'module',
+              name: module.name,
+              address: module.base,
+              folderId: null,
+              tags: [],
+              starred: false,
+              metadata: { path: module.path, size: module.size },
+            });
+          },
+        },
+      ];
+      setModuleMenuItems(items);
+      moduleContextMenu.show(e, module);
+    },
+    [moduleContextMenu, hasSession]
+  );
+
   const tabItems = [
     { id: "modules", label: "Modules", icon: Package, badge: modules.length || undefined },
     { id: "exports", label: "Exports", icon: FileCode, badge: exports.length || undefined },
@@ -170,6 +250,18 @@ export function NativePage({ hasSession, onRpcCall }: NativePageProps) {
 
   return (
     <PageContainer>
+      {/* Context Menus */}
+      <ContextMenu
+        items={contextMenuItems}
+        position={exportContextMenu.position}
+        onClose={exportContextMenu.hide}
+      />
+      <ContextMenu
+        items={moduleMenuItems}
+        position={moduleContextMenu.position}
+        onClose={moduleContextMenu.hide}
+      />
+
       <PageHeader>
         <Flex $align="center" $gap="12px">
           <Cpu size={18} />
@@ -250,6 +342,7 @@ export function NativePage({ hasSession, onRpcCall }: NativePageProps) {
                         selected={selectedModule?.base === module.base}
                         clickable
                         onClick={() => handleModuleSelect(module)}
+                        onContextMenu={(e) => handleModuleContextMenu(e, module)}
                       >
                         <TableCell>{module.name}</TableCell>
                         <TableCell mono>{module.base}</TableCell>
@@ -296,7 +389,11 @@ export function NativePage({ hasSession, onRpcCall }: NativePageProps) {
                   </TableHead>
                   <TableBody>
                     {filteredExports.map((exp, i) => (
-                      <TableRow key={i}>
+                      <TableRow
+                        key={i}
+                        clickable
+                        onContextMenu={(e) => handleExportContextMenu(e, exp)}
+                      >
                         <TableCell>
                           <Badge $variant={exp.type === "function" ? "primary" : "default"}>
                             {exp.type}

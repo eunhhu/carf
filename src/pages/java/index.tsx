@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Coffee, RefreshCw, Copy } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
+import { Coffee, RefreshCw, Copy, Bookmark, Crosshair } from "lucide-react";
 import {
   PageContainer,
   PageHeader,
@@ -28,6 +28,8 @@ import {
   TableCell,
   EmptyState,
 } from "../../components/ui/Table";
+import { ContextMenu, useContextMenu, type ContextMenuItemOrSeparator } from "../../components/ui/ContextMenu";
+import { useLibraryStore } from "../../stores/libraryStore";
 
 // ============================================================================
 // Types
@@ -95,6 +97,99 @@ export function JavaPage({ hasSession = false, onRpcCall }: JavaPageProps) {
     loadMethods(className);
   };
 
+  // Context menu for classes
+  const classContextMenu = useContextMenu();
+  const [classMenuItems, setClassMenuItems] = useState<ContextMenuItemOrSeparator[]>([]);
+
+  const handleClassContextMenu = useCallback(
+    (e: React.MouseEvent, className: string) => {
+      const items: ContextMenuItemOrSeparator[] = [
+        {
+          id: 'copy-class',
+          label: 'Copy Class Name',
+          icon: Copy,
+          onSelect: () => navigator.clipboard.writeText(className),
+        },
+        { type: 'separator' },
+        {
+          id: 'add-to-library',
+          label: 'Add to Library',
+          icon: Bookmark,
+          onSelect: () => {
+            useLibraryStore.getState().addEntry({
+              type: 'class',
+              name: className,
+              folderId: null,
+              tags: ['java'],
+              starred: false,
+              metadata: { runtime: 'java' },
+            });
+          },
+        },
+      ];
+      setClassMenuItems(items);
+      classContextMenu.show(e, className);
+    },
+    [classContextMenu]
+  );
+
+  // Context menu for methods
+  const methodContextMenu = useContextMenu();
+  const [methodMenuItems, setMethodMenuItems] = useState<ContextMenuItemOrSeparator[]>([]);
+
+  const handleMethodContextMenu = useCallback(
+    (e: React.MouseEvent, methodName: string) => {
+      const items: ContextMenuItemOrSeparator[] = [
+        {
+          id: 'copy-method',
+          label: 'Copy Method',
+          icon: Copy,
+          onSelect: () => navigator.clipboard.writeText(methodName),
+        },
+        {
+          id: 'copy-full',
+          label: 'Copy Full Signature',
+          icon: Copy,
+          onSelect: () => {
+            const full = selectedClass ? `${selectedClass}.${methodName}` : methodName;
+            navigator.clipboard.writeText(full);
+          },
+        },
+        { type: 'separator' },
+        {
+          id: 'hook-method',
+          label: 'Hook Method',
+          icon: Crosshair,
+          disabled: !hasSession,
+          onSelect: () => {
+            // TODO: Implement hook action
+            console.log('Hook:', selectedClass, methodName);
+          },
+        },
+        { type: 'separator' },
+        {
+          id: 'add-to-library',
+          label: 'Add to Library',
+          icon: Bookmark,
+          onSelect: () => {
+            useLibraryStore.getState().addEntry({
+              type: 'method',
+              name: methodName,
+              module: selectedClass ?? undefined,
+              folderId: null,
+              tags: ['java'],
+              starred: false,
+              metadata: { runtime: 'java', className: selectedClass },
+            });
+          },
+        },
+      ];
+      setMethodMenuItems(items);
+      methodContextMenu.show(e, methodName);
+    },
+    [methodContextMenu, selectedClass, hasSession]
+  );
+
   const tabItems = [
     { id: "classes", label: "Classes", badge: classes.length || undefined },
     { id: "methods", label: "Methods", badge: methods.length || undefined },
@@ -114,6 +209,18 @@ export function JavaPage({ hasSession = false, onRpcCall }: JavaPageProps) {
 
   return (
     <PageContainer>
+      {/* Context Menus */}
+      <ContextMenu
+        items={classMenuItems}
+        position={classContextMenu.position}
+        onClose={classContextMenu.hide}
+      />
+      <ContextMenu
+        items={methodMenuItems}
+        position={methodContextMenu.position}
+        onClose={methodContextMenu.hide}
+      />
+
       <PageHeader>
         <Flex $align="center" $gap="12px">
           <Coffee size={18} />
@@ -174,6 +281,7 @@ export function JavaPage({ hasSession = false, onRpcCall }: JavaPageProps) {
                         selected={selectedClass === cls}
                         clickable
                         onClick={() => handleClassSelect(cls)}
+                        onContextMenu={(e) => handleClassContextMenu(e, cls)}
                       >
                         <TableCell mono>{cls}</TableCell>
                         <TableCell align="center">
@@ -212,7 +320,11 @@ export function JavaPage({ hasSession = false, onRpcCall }: JavaPageProps) {
                   </TableHead>
                   <TableBody>
                     {methods.map((method, i) => (
-                      <TableRow key={i}>
+                      <TableRow
+                        key={i}
+                        clickable
+                        onContextMenu={(e) => handleMethodContextMenu(e, method)}
+                      >
                         <TableCell mono>{method}</TableCell>
                       </TableRow>
                     ))}

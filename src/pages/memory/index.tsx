@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { HardDrive, Search, Upload, Eye } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { HardDrive, Search, Upload, Eye, Copy, Bookmark, Crosshair } from "lucide-react";
 import {
   PageContainer,
   PageHeader,
@@ -30,6 +30,9 @@ import {
 import styled from "@emotion/styled";
 import { theme } from "../../styles";
 import { agentRpc } from "../../features/frida";
+import { ContextMenu, useContextMenu, type ContextMenuItemOrSeparator } from "../../components/ui/ContextMenu";
+import { useActionStore } from "../../stores/actionStore";
+import { useLibraryStore } from "../../stores/libraryStore";
 
 // ============================================================================
 // Types
@@ -144,6 +147,99 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Handle pending actions from other pages (e.g., "View in Memory" from Native)
+  const consumePendingAction = useActionStore((s) => s.consumePendingAction);
+
+  useEffect(() => {
+    const pendingAction = consumePendingAction();
+    if (pendingAction && pendingAction.type === 'read_memory') {
+      setReadAddress(pendingAction.target.address);
+      tabs.onChange('read');
+      // Auto-trigger read after setting address
+      setTimeout(() => {
+        if (hasSession && pendingAction.target.address) {
+          handleReadWithAddress(pendingAction.target.address);
+        }
+      }, 100);
+    }
+  }, []);
+
+  // Context menu for addresses
+  const addressContextMenu = useContextMenu();
+  const [addressMenuItems, setAddressMenuItems] = useState<ContextMenuItemOrSeparator[]>([]);
+
+  const buildAddressMenu = useCallback((address: string): ContextMenuItemOrSeparator[] => {
+    return [
+      {
+        id: 'copy-address',
+        label: 'Copy Address',
+        icon: Copy,
+        onSelect: () => navigator.clipboard.writeText(address),
+      },
+      { type: 'separator' },
+      {
+        id: 'read-at',
+        label: 'Read at Address',
+        icon: Eye,
+        onSelect: () => handlePrefillRead(address),
+      },
+      {
+        id: 'write-at',
+        label: 'Write at Address',
+        icon: Upload,
+        onSelect: () => handlePrefillWrite(address),
+      },
+      {
+        id: 'add-watch',
+        label: 'Add Watch',
+        icon: Crosshair,
+        onSelect: () => handleWatchAdd(address),
+      },
+      { type: 'separator' },
+      {
+        id: 'add-to-library',
+        label: 'Add to Library',
+        icon: Bookmark,
+        onSelect: () => {
+          useLibraryStore.getState().addEntry({
+            type: 'address',
+            name: address,
+            address: address,
+            folderId: null,
+            tags: [],
+            starred: false,
+            metadata: {},
+          });
+        },
+      },
+    ];
+  }, []);
+
+  const handleAddressContextMenu = useCallback((e: React.MouseEvent, address: string) => {
+    setAddressMenuItems(buildAddressMenu(address));
+    addressContextMenu.show(e, address);
+  }, [addressContextMenu, buildAddressMenu]);
+
+  // Helper to read with a specific address
+  const handleReadWithAddress = useCallback(async (address: string) => {
+    if (!hasSession || !address) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await onRpcCall("read_memory", {
+        address: address,
+        size: parseInt(readSize, 10),
+      });
+      const payload = result as { bytes?: number[] };
+      setReadData(payload.bytes ?? null);
+      setReadAddress(address);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [hasSession, onRpcCall, readSize]);
 
   useEffect(() => {
     const unsubscribe = agentRpc.onEvent((evt) => {
@@ -500,6 +596,13 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
 
   return (
     <PageContainer>
+      {/* Context Menu */}
+      <ContextMenu
+        items={addressMenuItems}
+        position={addressContextMenu.position}
+        onClose={addressContextMenu.hide}
+      />
+
       <PageHeader>
         <Flex $align="center" $gap="12px">
           <HardDrive size={18} />
@@ -719,7 +822,11 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
                 </TableHead>
                 <TableBody>
                   {scanAddresses.map((addr) => (
-                    <TableRow key={addr}>
+                    <TableRow
+                      key={addr}
+                      clickable
+                      onContextMenu={(e) => handleAddressContextMenu(e, addr)}
+                    >
                       <TableCell mono>{addr}</TableCell>
                       <TableCell mono truncate>{scanValues[addr] ?? ""}</TableCell>
                       <TableCell align="center">

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Layers, RefreshCw, Eye } from "lucide-react";
+import { useState, useCallback } from "react";
+import { Layers, RefreshCw, Eye, Copy, Bookmark } from "lucide-react";
 import {
   PageContainer,
   PageHeader,
@@ -26,6 +26,9 @@ import {
   TableCell,
   EmptyState,
 } from "../../components/ui/Table";
+import { ContextMenu, useContextMenu, type ContextMenuItemOrSeparator } from "../../components/ui/ContextMenu";
+import { useActionStore } from "../../stores/actionStore";
+import { useLibraryStore } from "../../stores/libraryStore";
 
 // ============================================================================
 // Types
@@ -130,6 +133,86 @@ export function ThreadPage({ hasSession, onRpcCall }: ThreadPageProps) {
     }
   };
 
+  // Context menu for backtrace frames
+  const frameContextMenu = useContextMenu();
+  const [frameMenuItems, setFrameMenuItems] = useState<ContextMenuItemOrSeparator[]>([]);
+
+  const handleFrameContextMenu = useCallback(
+    (e: React.MouseEvent, frame: string | BacktraceFrame) => {
+      const address = typeof frame === 'string' ? frame : frame.address;
+      const symbol = typeof frame === 'string' ? undefined : frame.symbol;
+      const moduleName = typeof frame === 'string' ? undefined : frame.moduleName;
+
+      if (!address) return;
+
+      const items: ContextMenuItemOrSeparator[] = [
+        {
+          id: 'copy-address',
+          label: 'Copy Address',
+          icon: Copy,
+          onSelect: () => navigator.clipboard.writeText(address),
+        },
+      ];
+
+      if (symbol) {
+        items.push({
+          id: 'copy-symbol',
+          label: 'Copy Symbol',
+          icon: Copy,
+          onSelect: () => navigator.clipboard.writeText(symbol),
+        });
+      }
+
+      items.push({ type: 'separator' });
+
+      items.push({
+        id: 'view-memory',
+        label: 'View in Memory',
+        icon: Eye,
+        disabled: !hasSession,
+        onSelect: () => {
+          useActionStore.getState().navigateToMemory(address, symbol ?? address);
+        },
+      });
+
+      if (moduleName) {
+        items.push({
+          id: 'view-module',
+          label: `View Module (${moduleName})`,
+          icon: Layers,
+          disabled: !hasSession,
+          onSelect: () => {
+            useActionStore.getState().navigateToModule(moduleName, address);
+          },
+        });
+      }
+
+      items.push({ type: 'separator' });
+
+      items.push({
+        id: 'add-to-library',
+        label: 'Add to Library',
+        icon: Bookmark,
+        onSelect: () => {
+          useLibraryStore.getState().addEntry({
+            type: symbol ? 'function' : 'address',
+            name: symbol ?? address,
+            address,
+            module: moduleName,
+            folderId: null,
+            tags: [],
+            starred: false,
+            metadata: {},
+          });
+        },
+      });
+
+      setFrameMenuItems(items);
+      frameContextMenu.show(e, frame);
+    },
+    [frameContextMenu, hasSession]
+  );
+
   if (!hasSession) {
     return (
       <PageContainer>
@@ -144,6 +227,13 @@ export function ThreadPage({ hasSession, onRpcCall }: ThreadPageProps) {
 
   return (
     <PageContainer>
+      {/* Context Menu */}
+      <ContextMenu
+        items={frameMenuItems}
+        position={frameContextMenu.position}
+        onClose={frameContextMenu.hide}
+      />
+
       <PageHeader>
         <Flex $align="center" $gap="12px">
           <Layers size={18} />
@@ -236,7 +326,12 @@ export function ThreadPage({ hasSession, onRpcCall }: ThreadPageProps) {
                     ) : (
                       <Flex $direction="column" $gap="4px">
                         {backtrace.map((frame, i) => (
-                          <Flex key={i} $gap="8px">
+                          <Flex
+                            key={i}
+                            $gap="8px"
+                            onContextMenu={(e) => handleFrameContextMenu(e, frame)}
+                            style={{ cursor: 'context-menu' }}
+                          >
                             <Text $color="muted" $size="xs">#{i}</Text>
                             <Code style={{ fontSize: 11 }}>{formatSymbolLike(frame)}</Code>
                           </Flex>
