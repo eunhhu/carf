@@ -1,5 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
-import { Cpu, Package, FileCode, RefreshCw, Copy, Eye, Bookmark } from "lucide-react";
+import { Cpu, Package, FileCode, RefreshCw, Copy, Eye, Bookmark, Anchor } from "lucide-react";
+import { HooksPanel } from "./HooksPanel";
+import { useHookStore } from "../../stores/hookStore";
 import {
   PageContainer,
   PageHeader,
@@ -230,10 +232,14 @@ export function NativePage({ hasSession, onRpcCall }: NativePageProps) {
     [moduleContextMenu, hasSession]
   );
 
+  // Hook store for badge count
+  const hookCount = useHookStore((s) => Object.keys(s.hooks).length);
+
   const tabItems = [
     { id: "modules", label: "Modules", icon: Package, badge: modules.length || undefined },
     { id: "exports", label: "Exports", icon: FileCode, badge: exports.length || undefined },
     { id: "imports", label: "Imports", icon: FileCode, badge: imports.length || undefined },
+    { id: "hooks", label: "Hooks", icon: Anchor, badge: hookCount || undefined },
   ];
 
   if (!hasSession) {
@@ -453,6 +459,10 @@ export function NativePage({ hasSession, onRpcCall }: NativePageProps) {
                   </TableBody>
                 </Table>
               )}
+            </TabPanel>
+
+            <TabPanel value="hooks" activeTab={tabs.value}>
+              <HooksPanel onRpcCall={onRpcCall} />
             </TabPanel>
           </>
         )}

@@ -29,24 +29,51 @@ export const getBacktrace: MethodHandler = ({ params }) => {
     if (threadId !== undefined) {
       const threads = Process.enumerateThreads();
       const thread = threads.find((t) => t.id === threadId);
+
       if (!thread) {
-        throw new Error(`Thread ${threadId} not found`);
+        // Thread may have terminated between enumeration and backtrace
+        return {
+          warning: `Thread ${threadId} not found`,
+          frames: [],
+        };
       }
+
+      // Running thread는 backtrace 불가 - crash 위험
+      // Only stopped/waiting threads have valid context for backtrace
+      if (thread.state !== "stopped" && thread.state !== "waiting") {
+        return {
+          warning: `Thread ${threadId} is in '${thread.state}' state, backtrace unavailable`,
+          frames: [],
+        };
+      }
+
       context = thread.context;
     }
 
-    const backtrace = Thread.backtrace(context, Backtracer.ACCURATE);
+    // Wrap backtrace call for race condition protection
+    // Thread may terminate between state check and backtrace
+    try {
+      const backtrace = Thread.backtrace(context, Backtracer.ACCURATE);
 
-    return backtrace.map((addr) => {
-      const symbol = DebugSymbol.fromAddress(addr);
       return {
-        address: addr.toString(),
-        symbol: symbol.name || null,
-        moduleName: symbol.moduleName || null,
-        fileName: symbol.fileName || null,
-        lineNumber: symbol.lineNumber || null,
+        frames: backtrace.map((addr) => {
+          const symbol = DebugSymbol.fromAddress(addr);
+          return {
+            address: addr.toString(),
+            symbol: symbol.name || null,
+            moduleName: symbol.moduleName || null,
+            fileName: symbol.fileName || null,
+            lineNumber: symbol.lineNumber || null,
+          };
+        }),
       };
-    });
+    } catch (innerError) {
+      // Thread context became invalid during backtrace
+      return {
+        warning: `Thread context became invalid during backtrace`,
+        frames: [],
+      };
+    }
   } catch (e) {
     throw new Error(`Failed to get backtrace: ${e}`);
   }

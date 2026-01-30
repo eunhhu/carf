@@ -330,3 +330,12 @@ export {
 } from "./valueScan";
 
 export { memoryWatchAdd, memoryWatchRemove, memoryWatchList, memoryWatchClear } from "./watch";
+
+export {
+  memoryFreezeAdd,
+  memoryFreezeRemove,
+  memoryFreezeUpdate,
+  memoryFreezeList,
+  memoryFreezeClear,
+  memoryFreezeRead,
+} from "./freeze";

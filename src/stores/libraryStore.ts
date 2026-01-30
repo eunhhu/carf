@@ -27,8 +27,9 @@ export interface LibraryEntry {
   id: string;
   type: LibraryEntryType;
   name: string;
-  address?: string;
-  module?: string;
+  address?: string;          // Absolute address (may be outdated due to ASLR)
+  module?: string;           // Module name for ASLR-aware resolution
+  offset?: string;           // Offset from module base for ASLR-aware resolution
   folderId: string | null;
   tags: string[];
   notes?: string;
@@ -110,7 +111,13 @@ interface LibraryActions {
   importEntries: (json: string) => number;
 
   // Quick add helpers
-  addFromAddress: (address: string, name?: string, type?: LibraryEntryType) => string;
+  addFromAddress: (
+    address: string,
+    name?: string,
+    type?: LibraryEntryType,
+    module?: string,
+    offset?: string
+  ) => string;
   addFromModule: (
     moduleName: string,
     moduleBase: string,
@@ -452,13 +459,15 @@ export const useLibraryStore = create<LibraryState & LibraryActions>((set, get) 
   },
 
   // Quick add helpers
-  addFromAddress: (address, name, type = 'address') => {
+  addFromAddress: (address, name, type = 'address', module, offset) => {
     return get().addEntry({
       type,
       name: name || address,
       address,
+      module,
+      offset,
       folderId: null,
-      tags: [],
+      tags: module ? ['aslr'] : [],
       starred: false,
       metadata: {},
     });
@@ -545,3 +554,88 @@ export const selectEntriesByFolder = (
 ): LibraryEntry[] => {
   return Object.values(state.entries).filter((e) => e.folderId === folderId);
 };
+
+// ============================================================================
+// ASLR Helpers
+// ============================================================================
+
+export interface ModuleInfo {
+  name: string;
+  base: string;
+  size: number;
+}
+
+/**
+ * Resolve an address from module + offset (ASLR-aware)
+ * Returns the resolved address or null if module not found
+ */
+export async function resolveAddress(
+  entry: LibraryEntry,
+  onRpcCall: (method: string, params?: unknown) => Promise<unknown>
+): Promise<string | null> {
+  // If we have module + offset, resolve dynamically
+  if (entry.module && entry.offset) {
+    try {
+      const modules = (await onRpcCall('enumerate_modules')) as ModuleInfo[];
+      const mod = modules.find((m) => m.name === entry.module);
+      if (mod) {
+        const base = BigInt(mod.base);
+        const offset = BigInt(entry.offset);
+        return '0x' + (base + offset).toString(16);
+      }
+    } catch {
+      // Fall through to static address
+    }
+  }
+
+  // Fall back to static address
+  return entry.address || null;
+}
+
+/**
+ * Compute module and offset for an address
+ * Returns { module, offset } or null if address is not in any module (heap/stack)
+ */
+export async function computeModuleOffset(
+  address: string,
+  onRpcCall: (method: string, params?: unknown) => Promise<unknown>
+): Promise<{ module: string; offset: string } | null> {
+  try {
+    const modules = (await onRpcCall('enumerate_modules')) as ModuleInfo[];
+    const addr = BigInt(address);
+
+    for (const mod of modules) {
+      const base = BigInt(mod.base);
+      const end = base + BigInt(mod.size);
+
+      if (addr >= base && addr < end) {
+        const offset = addr - base;
+        return {
+          module: mod.name,
+          offset: '0x' + offset.toString(16),
+        };
+      }
+    }
+  } catch {
+    // Failed to enumerate modules
+  }
+
+  return null; // Address not in any module (heap/stack)
+}
+
+/**
+ * Check if entry has ASLR info (module + offset)
+ */
+export function hasAslrInfo(entry: LibraryEntry): boolean {
+  return Boolean(entry.module && entry.offset);
+}
+
+/**
+ * Get display address - shows [M+O] format if ASLR info available
+ */
+export function getDisplayAddress(entry: LibraryEntry): string {
+  if (entry.module && entry.offset) {
+    return `${entry.module}+${entry.offset}`;
+  }
+  return entry.address || '(unknown)';
+}

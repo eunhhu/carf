@@ -91,6 +91,12 @@ import {
   memoryWatchRemove,
   memoryWatchList,
   memoryWatchClear,
+  memoryFreezeAdd,
+  memoryFreezeRemove,
+  memoryFreezeUpdate,
+  memoryFreezeList,
+  memoryFreezeClear,
+  memoryFreezeRead,
 } from "./memory";
 
 // Advanced memory methods
@@ -318,6 +324,14 @@ export const methods: Record<string, MethodHandler> = {
   memory_watch_remove: memoryWatchRemove,
   memory_watch_list: memoryWatchList,
   memory_watch_clear: memoryWatchClear,
+
+  // Memory - Freeze (value locking)
+  memory_freeze_add: memoryFreezeAdd,
+  memory_freeze_remove: memoryFreezeRemove,
+  memory_freeze_update: memoryFreezeUpdate,
+  memory_freeze_list: memoryFreezeList,
+  memory_freeze_clear: memoryFreezeClear,
+  memory_freeze_read: memoryFreezeRead,
 
   // Memory - Advanced
   memory_protect: memoryProtect,

@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
-import { HardDrive, Search, Upload, Eye, Copy, Bookmark, Crosshair } from "lucide-react";
+import { HardDrive, Search, Eye, Copy, Bookmark, Crosshair, TableIcon, Plus } from "lucide-react";
+import { MemoryTable } from "./MemoryTable";
+import { useMemoryStore } from "../../stores/memoryStore";
 import {
   PageContainer,
   PageHeader,
@@ -107,15 +109,14 @@ const HexAscii = styled.span`
 // ============================================================================
 
 export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
-  const tabs = useTabs("read");
+  const tabs = useTabs("table");
 
   // Read state
   const [readAddress, setReadAddress] = useState("");
   const [readSize, setReadSize] = useState("256");
   const [readData, setReadData] = useState<number[] | null>(null);
 
-  // Write state
-  const [writeAddress, setWriteAddress] = useState("");
+  // Write state (uses readAddress for the address)
   const [writeData, setWriteData] = useState("");
 
   // Search state
@@ -183,12 +184,6 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
         label: 'Read at Address',
         icon: Eye,
         onSelect: () => handlePrefillRead(address),
-      },
-      {
-        id: 'write-at',
-        label: 'Write at Address',
-        icon: Upload,
-        onSelect: () => handlePrefillWrite(address),
       },
       {
         id: 'add-watch',
@@ -353,13 +348,15 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
   };
 
   const handleWrite = async () => {
-    if (!hasSession || !writeAddress || !writeData) return;
+    if (!hasSession || !readAddress || !writeData) return;
     setLoading(true);
     setError(null);
     try {
       const bytes = writeData.split(/[\s,]+/).map((s) => parseInt(s, 16));
-      await onRpcCall("write_memory", { address: writeAddress, bytes });
+      await onRpcCall("write_memory", { address: readAddress, bytes });
       setError(null);
+      // Re-read to show updated values
+      await handleRead();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -487,12 +484,7 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
 
   const handlePrefillRead = (address: string) => {
     setReadAddress(address);
-    tabs.onChange("read");
-  };
-
-  const handlePrefillWrite = (address: string) => {
-    setWriteAddress(address);
-    tabs.onChange("write");
+    tabs.onChange("hex");
   };
 
   const handleWatchAdd = async (address?: string) => {
@@ -575,10 +567,21 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  // Memory store for table entries
+  const memoryEntryCount = useMemoryStore((s) => Object.keys(s.entries).length);
+
+  // Add address to memory table from scan results
+  const handleAddToTable = useCallback((address: string) => {
+    // Convert utf8 to u32 for memory table (utf8 not supported in freeze)
+    const memoryType = scanValueType === 'utf8' ? 'u32' : scanValueType;
+    useMemoryStore.getState().addEntry(address, memoryType, address);
+    tabs.onChange("table");
+  }, [scanValueType, tabs]);
+
   const tabItems = [
-    { id: "read", label: "Read", icon: Eye },
-    { id: "write", label: "Write", icon: Upload },
-    { id: "search", label: "Search", icon: Search },
+    { id: "table", label: "Table", icon: TableIcon, badge: memoryEntryCount || undefined },
+    { id: "scan", label: "Scan", icon: Search },
+    { id: "hex", label: "Hex", icon: Eye },
     { id: "ranges", label: "Ranges", icon: HardDrive, badge: ranges.length || undefined },
   ];
 
@@ -617,82 +620,13 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
       </Toolbar>
 
       <PageContent>
-          <TabPanel value="read" activeTab={tabs.value}>
-          <Card $padding="16px">
-            <FormRow style={{ marginBottom: 16 }}>
-              <FormGroup style={{ flex: 1 }}>
-                <Label>Address</Label>
-                <Input
-                  value={readAddress}
-                  onChange={(e) => setReadAddress(e.target.value)}
-                  placeholder="0x..."
-                  inputSize="sm"
-                />
-              </FormGroup>
-              <FormGroup style={{ width: 100 }}>
-                <Label>Size</Label>
-                <Input
-                  value={readSize}
-                  onChange={(e) => setReadSize(e.target.value)}
-                  placeholder="256"
-                  inputSize="sm"
-                />
-              </FormGroup>
-              <Button
-                variant="primary"
-                onClick={handleRead}
-                disabled={loading || !readAddress}
-                style={{ alignSelf: "flex-end" }}
-              >
-                Read
-              </Button>
-            </FormRow>
-          </Card>
-
-          {readData && (
-            <HexViewContainer style={{ marginTop: 16 }}>
-              {formatHexDump(readData, readAddress).map((row, i) => (
-                <HexRow key={i}>
-                  <HexAddress>{row.address}</HexAddress>
-                  <HexBytes>{row.bytes}</HexBytes>
-                  <HexAscii>{row.ascii}</HexAscii>
-                </HexRow>
-              ))}
-            </HexViewContainer>
-          )}
+        {/* Table Tab - CE style multi-view */}
+        <TabPanel value="table" activeTab={tabs.value}>
+          <MemoryTable onRpcCall={onRpcCall} />
         </TabPanel>
 
-        <TabPanel value="write" activeTab={tabs.value}>
-          <Card $padding="16px">
-            <FormGroup style={{ marginBottom: 16 }}>
-              <Label>Address</Label>
-              <Input
-                value={writeAddress}
-                onChange={(e) => setWriteAddress(e.target.value)}
-                placeholder="0x..."
-                inputSize="sm"
-              />
-            </FormGroup>
-            <FormGroup style={{ marginBottom: 16 }}>
-              <Label>Data (hex bytes, space or comma separated)</Label>
-              <Input
-                value={writeData}
-                onChange={(e) => setWriteData(e.target.value)}
-                placeholder="90 90 90 or 90,90,90"
-                inputSize="sm"
-              />
-            </FormGroup>
-            <Button
-              variant="danger"
-              onClick={handleWrite}
-              disabled={loading || !writeAddress || !writeData}
-            >
-              Write Memory
-            </Button>
-          </Card>
-        </TabPanel>
-
-        <TabPanel value="search" activeTab={tabs.value}>
+        {/* Scan Tab - Value scanning with First/Next workflow */}
+        <TabPanel value="scan" activeTab={tabs.value}>
           <Card $padding="16px">
             <FormRow style={{ marginBottom: 16 }}>
               <FormGroup style={{ flex: 1 }}>
@@ -830,12 +764,13 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
                       <TableCell mono>{addr}</TableCell>
                       <TableCell mono truncate>{scanValues[addr] ?? ""}</TableCell>
                       <TableCell align="center">
-                        <Flex $justify="center" $gap="8px">
-                          <Button size="sm" onClick={() => handlePrefillRead(addr)}>
-                            Read
+                        <Flex $justify="center" $gap="4px">
+                          <Button size="sm" variant="primary" onClick={() => handleAddToTable(addr)}>
+                            <Plus size={12} style={{ marginRight: 2 }} />
+                            Table
                           </Button>
-                          <Button size="sm" onClick={() => handlePrefillWrite(addr)}>
-                            Write
+                          <Button size="sm" onClick={() => handlePrefillRead(addr)}>
+                            Hex
                           </Button>
                           <Button size="sm" onClick={() => handleWatchAdd(addr)}>
                             Watch
@@ -968,6 +903,73 @@ export function MemoryPage({ hasSession, onRpcCall }: MemoryPageProps) {
                 )}
               </Flex>
             </Card>
+          )}
+        </TabPanel>
+
+        {/* Hex Tab - Read/Write memory */}
+        <TabPanel value="hex" activeTab={tabs.value}>
+          <Card $padding="16px">
+            <FormRow style={{ marginBottom: 16 }}>
+              <FormGroup style={{ flex: 1 }}>
+                <Label>Address</Label>
+                <Input
+                  value={readAddress}
+                  onChange={(e) => setReadAddress(e.target.value)}
+                  placeholder="0x..."
+                  inputSize="sm"
+                />
+              </FormGroup>
+              <FormGroup style={{ width: 100 }}>
+                <Label>Size</Label>
+                <Input
+                  value={readSize}
+                  onChange={(e) => setReadSize(e.target.value)}
+                  placeholder="256"
+                  inputSize="sm"
+                />
+              </FormGroup>
+              <Button
+                variant="primary"
+                onClick={handleRead}
+                disabled={loading || !readAddress}
+                style={{ alignSelf: "flex-end" }}
+              >
+                Read
+              </Button>
+            </FormRow>
+
+            {/* Write section */}
+            <FormGroup style={{ marginBottom: 16 }}>
+              <Label>Write Data (hex bytes, space or comma separated)</Label>
+              <FormRow>
+                <Input
+                  value={writeData}
+                  onChange={(e) => setWriteData(e.target.value)}
+                  placeholder="90 90 90 or 90,90,90"
+                  inputSize="sm"
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  variant="danger"
+                  onClick={handleWrite}
+                  disabled={loading || !readAddress || !writeData}
+                >
+                  Write
+                </Button>
+              </FormRow>
+            </FormGroup>
+          </Card>
+
+          {readData && (
+            <HexViewContainer style={{ marginTop: 16 }}>
+              {formatHexDump(readData, readAddress).map((row, i) => (
+                <HexRow key={i}>
+                  <HexAddress>{row.address}</HexAddress>
+                  <HexBytes>{row.bytes}</HexBytes>
+                  <HexAscii>{row.ascii}</HexAscii>
+                </HexRow>
+              ))}
+            </HexViewContainer>
           )}
         </TabPanel>
 

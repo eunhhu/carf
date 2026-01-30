@@ -107,3 +107,11 @@ export type { TreeNode } from "./TreeView";
 // Command Palette
 export { CommandPalette } from "./CommandPalette";
 export type { CommandItem } from "./CommandPalette";
+
+// Editable Cell components
+export { EditableCell, EditableNumberCell, EditableAddressCell } from "./EditableCell";
+export type {
+  EditableCellProps,
+  EditableNumberCellProps,
+  EditableAddressCellProps,
+} from "./EditableCell";

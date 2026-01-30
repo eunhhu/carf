@@ -4,12 +4,24 @@ import type { MethodHandler } from "../../rpc/types";
 export const enumerateModules: MethodHandler = () => {
   try {
     const modules = Process.enumerateModules();
-    return modules.map((m) => ({
-      name: m.name,
-      base: m.base.toString(),
-      size: m.size,
-      path: m.path,
-    }));
+    // Map with defensive access to avoid crashes on some Android processes
+    return modules.map((m) => {
+      try {
+        return {
+          name: m.name || "(unknown)",
+          base: m.base?.toString() || "0x0",
+          size: m.size || 0,
+          path: m.path || "",
+        };
+      } catch {
+        return {
+          name: "(error)",
+          base: "0x0",
+          size: 0,
+          path: "",
+        };
+      }
+    });
   } catch (e) {
     throw new Error(`Failed to enumerate modules: ${e}`);
   }
