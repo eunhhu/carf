@@ -1,16 +1,31 @@
+import { lazy, Suspense, useMemo } from 'react';
 import type { TabId } from '../components/layout';
 import type { DeviceInfo, ProcessInfo } from '../features/frida/types';
+import { Spinner, Text } from '../components/ui/Layout';
+import { EmptyState } from '../components/ui/Table';
 
 import { AttachPage } from './attach';
-import { NativePage } from './native';
-import { MemoryPage } from './memory';
-import { MethodsPage } from './methods';
-import { ThreadPage } from './thread';
-import { ObjcPage } from './objc';
-import { SwiftPage } from './swift';
-import { JavaPage } from './java';
-import { ConsolePage } from './console';
 import { SettingsPage } from './settings';
+
+// Lazy load heavy pages to improve tab switching performance
+const NativePage = lazy(() => import('./native').then(m => ({ default: m.NativePage })));
+const MemoryPage = lazy(() => import('./memory').then(m => ({ default: m.MemoryPage })));
+const MethodsPage = lazy(() => import('./methods').then(m => ({ default: m.MethodsPage })));
+const ThreadPage = lazy(() => import('./thread').then(m => ({ default: m.ThreadPage })));
+const ObjcPage = lazy(() => import('./objc').then(m => ({ default: m.ObjcPage })));
+const SwiftPage = lazy(() => import('./swift').then(m => ({ default: m.SwiftPage })));
+const JavaPage = lazy(() => import('./java').then(m => ({ default: m.JavaPage })));
+const ConsolePage = lazy(() => import('./console').then(m => ({ default: m.ConsolePage })));
+
+// Loading fallback
+function PageLoader() {
+  return (
+    <EmptyState style={{ height: '100%' }}>
+      <Spinner />
+      <Text $color="muted">Loading...</Text>
+    </EmptyState>
+  );
+}
 
 type TabPagesProps = {
   activeTab: TabId;
@@ -57,164 +72,105 @@ export function TabPages({
   onRpcCall,
   fridaVersion,
 }: TabPagesProps) {
-  const sessionKey = scriptId ?? sessionId ?? "no-session";
+  const containerStyle = useMemo(() => ({
+    display: 'flex',
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+  }), []);
+
+  // Render only the active tab for better performance
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'attach':
+        return (
+          <AttachPage
+            devices={devices}
+            processes={processes}
+            selectedDeviceId={selectedDeviceId}
+            sessionId={sessionId}
+            scriptId={scriptId}
+            busy={busy}
+            onDeviceChange={onDeviceChange}
+            onRefreshDevices={onRefreshDevices}
+            onRefreshProcesses={onRefreshProcesses}
+            onAttach={onAttach}
+            onDetach={onDetach}
+            onSpawn={onSpawn}
+            onKill={onKill}
+          />
+        );
+
+      case 'native':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <NativePage hasSession={hasScript} onRpcCall={onRpcCall} />
+          </Suspense>
+        );
+
+      case 'memory':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <MemoryPage hasSession={hasScript} onRpcCall={onRpcCall} />
+          </Suspense>
+        );
+
+      case 'methods':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <MethodsPage hasSession={hasScript} onRpcCall={onRpcCall} />
+          </Suspense>
+        );
+
+      case 'thread':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <ThreadPage hasSession={hasScript} onRpcCall={onRpcCall} />
+          </Suspense>
+        );
+
+      case 'objc':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <ObjcPage hasSession={hasScript} onRpcCall={onRpcCall} />
+          </Suspense>
+        );
+
+      case 'swift':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <SwiftPage hasSession={hasScript} onRpcCall={onRpcCall} />
+          </Suspense>
+        );
+
+      case 'java':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <JavaPage hasSession={hasScript} onRpcCall={onRpcCall} />
+          </Suspense>
+        );
+
+      case 'console':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <ConsolePage />
+          </Suspense>
+        );
+
+      case 'settings':
+        return <SettingsPage fridaVersion={fridaVersion} />;
+
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div style={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0, width: '100%', height: '100%', overflow: 'hidden' }}>
-      <div
-        style={{
-          display: activeTab === 'attach' ? 'flex' : 'none',
-          flex: 1,
-          minWidth: 0,
-          minHeight: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <AttachPage
-          key={`attach-${sessionKey}`}
-          devices={devices}
-          processes={processes}
-          selectedDeviceId={selectedDeviceId}
-          sessionId={sessionId}
-          scriptId={scriptId}
-          busy={busy}
-          onDeviceChange={onDeviceChange}
-          onRefreshDevices={onRefreshDevices}
-          onRefreshProcesses={onRefreshProcesses}
-          onAttach={onAttach}
-          onDetach={onDetach}
-          onSpawn={onSpawn}
-          onKill={onKill}
-        />
-      </div>
-
-      <div
-        style={{
-          display: activeTab === 'native' ? 'flex' : 'none',
-          flex: 1,
-          minWidth: 0,
-          minHeight: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <NativePage key={`native-${sessionKey}`} hasSession={hasScript} onRpcCall={onRpcCall} />
-      </div>
-
-      <div
-        style={{
-          display: activeTab === 'memory' ? 'flex' : 'none',
-          flex: 1,
-          minWidth: 0,
-          minHeight: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <MemoryPage key={`memory-${sessionKey}`} hasSession={hasScript} onRpcCall={onRpcCall} />
-      </div>
-
-      <div
-        style={{
-          display: activeTab === 'methods' ? 'flex' : 'none',
-          flex: 1,
-          minWidth: 0,
-          minHeight: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <MethodsPage key={`methods-${sessionKey}`} hasSession={hasScript} onRpcCall={onRpcCall} />
-      </div>
-
-      <div
-        style={{
-          display: activeTab === 'thread' ? 'flex' : 'none',
-          flex: 1,
-          minWidth: 0,
-          minHeight: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <ThreadPage key={`thread-${sessionKey}`} hasSession={hasScript} onRpcCall={onRpcCall} />
-      </div>
-
-      <div
-        style={{
-          display: activeTab === 'objc' ? 'flex' : 'none',
-          flex: 1,
-          minWidth: 0,
-          minHeight: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <ObjcPage key={`objc-${sessionKey}`} hasSession={hasScript} onRpcCall={onRpcCall} />
-      </div>
-
-      <div
-        style={{
-          display: activeTab === 'swift' ? 'flex' : 'none',
-          flex: 1,
-          minWidth: 0,
-          minHeight: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <SwiftPage key={`swift-${sessionKey}`} hasSession={hasScript} onRpcCall={onRpcCall} />
-      </div>
-
-      <div
-        style={{
-          display: activeTab === 'java' ? 'flex' : 'none',
-          flex: 1,
-          minWidth: 0,
-          minHeight: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <JavaPage key={`java-${sessionKey}`} hasSession={hasScript} onRpcCall={onRpcCall} />
-      </div>
-
-      <div
-        style={{
-          display: activeTab === 'console' ? 'flex' : 'none',
-          flex: 1,
-          minWidth: 0,
-          minHeight: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <ConsolePage key={`console-${sessionKey}`} />
-      </div>
-
-      <div
-        style={{
-          display: activeTab === 'settings' ? 'flex' : 'none',
-          flex: 1,
-          minWidth: 0,
-          minHeight: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <SettingsPage key={`settings-${sessionKey}`} fridaVersion={fridaVersion} />
-      </div>
+    <div style={containerStyle}>
+      {renderContent()}
     </div>
   );
 }

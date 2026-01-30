@@ -5,18 +5,32 @@ import { theme } from '../../styles';
 // Re-export base components
 export { Panel, PanelGroup, Separator };
 
-// Styled Panel Group
-export const StyledPanelGroup = styled(PanelGroup)`
-  width: 100%;
-  height: 100%;
-`;
+// Styled Panel Group - use inline style instead of styled(PanelGroup) to avoid Emotion issues
+export const StyledPanelGroup = PanelGroup;
 
-// Styled Resize Handle - horizontal (between left/right panels)
-export const HorizontalResizeHandle = styled(Separator)`
+// Use inline styles for resize handles to avoid styled(Separator) issues
+export const horizontalResizeHandleStyles = {
+  width: 1,
+  background: theme.colors.border.primary,
+  flexShrink: 0,
+  cursor: 'col-resize' as const,
+};
+
+export const verticalResizeHandleStyles = {
+  height: 1,
+  background: theme.colors.border.primary,
+  flexShrink: 0,
+  cursor: 'row-resize' as const,
+};
+
+// Wrapper components for styled resize handles (using styled.div instead of styled(Separator))
+export const HorizontalResizeHandle = styled.div`
   width: 1px;
   background: ${theme.colors.border.primary};
   transition: background ${theme.transition.fast}, width ${theme.transition.fast};
   position: relative;
+  flex-shrink: 0;
+  cursor: col-resize;
 
   &::after {
     content: '';
@@ -28,23 +42,19 @@ export const HorizontalResizeHandle = styled(Separator)`
     z-index: 10;
   }
 
-  &:hover,
-  &[data-resize-handle-active] {
+  &:hover {
     background: ${theme.colors.accent.primary};
     width: 2px;
   }
-
-  &[data-resize-handle-active] {
-    background: ${theme.colors.accent.hover};
-  }
 `;
 
-// Styled Resize Handle - vertical (between top/bottom panels)
-export const VerticalResizeHandle = styled(Separator)`
+export const VerticalResizeHandle = styled.div`
   height: 1px;
   background: ${theme.colors.border.primary};
   transition: background ${theme.transition.fast}, height ${theme.transition.fast};
   position: relative;
+  flex-shrink: 0;
+  cursor: row-resize;
 
   &::after {
     content: '';
@@ -56,14 +66,9 @@ export const VerticalResizeHandle = styled(Separator)`
     z-index: 10;
   }
 
-  &:hover,
-  &[data-resize-handle-active] {
+  &:hover {
     background: ${theme.colors.accent.primary};
     height: 2px;
-  }
-
-  &[data-resize-handle-active] {
-    background: ${theme.colors.accent.hover};
   }
 `;
 

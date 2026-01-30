@@ -35,68 +35,12 @@ const ContentWrapper = styled.div`
   overflow: hidden;
 `;
 
-const MainPanelGroup = styled(Group)`
-  flex: 1;
-`;
-
-const VerticalPanelGroup = styled(Group)`
-  height: 100%;
-`;
-
 const MainContent = styled.div`
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-`;
-
-const HorizontalResizeHandle = styled(Separator)`
-  width: 1px;
-  cursor: col-resize;
-  background: ${theme.colors.border.primary};
-  transition: background ${theme.transition.fast};
-  position: relative;
-  flex-shrink: 0;
-
-  &::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: -3px;
-    right: -3px;
-    z-index: 10;
-  }
-
-  &:hover,
-  &[data-resize-handle-active] {
-    background: ${theme.colors.accent.primary};
-  }
-`;
-
-const VerticalResizeHandle = styled(Separator)`
-  height: 1px;
-  cursor: row-resize;
-  background: ${theme.colors.border.primary};
-  transition: background ${theme.transition.fast};
-  position: relative;
-  flex-shrink: 0;
-
-  &::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: -3px;
-    bottom: -3px;
-    z-index: 10;
-  }
-
-  &:hover,
-  &[data-resize-handle-active] {
-    background: ${theme.colors.accent.primary};
-  }
 `;
 
 const SidePanelWrapper = styled.div`
@@ -464,10 +408,10 @@ function AppContent() {
           />
 
           <ContentWrapper>
-            <MainPanelGroup orientation="horizontal">
+            <Group orientation="horizontal" style={{ flex: 1 }}>
               {/* Main content + bottom panel */}
               <Panel id="main-content" minSize={50}>
-                <VerticalPanelGroup orientation="vertical">
+                <Group orientation="vertical" style={{ height: '100%' }}>
                   {/* Main tab content */}
                   <Panel id="tab-content" minSize={30}>
                     <MainContent>
@@ -496,7 +440,7 @@ function AppContent() {
                   {/* Bottom panel (Console) */}
                   {bottomPanelOpen && (
                     <>
-                      <VerticalResizeHandle />
+                      <Separator style={{ height: 1, cursor: 'row-resize', background: theme.colors.border.primary, flexShrink: 0 }} />
                       <Panel
                         id="console-panel"
                         defaultSize={bottomPanelSize}
@@ -518,13 +462,13 @@ function AppContent() {
                       </Panel>
                     </>
                   )}
-                </VerticalPanelGroup>
+                </Group>
               </Panel>
 
               {/* Right panel (Library) */}
               {rightPanelOpen && (
                 <>
-                  <HorizontalResizeHandle />
+                  <Separator style={{ width: 1, cursor: 'col-resize', background: theme.colors.border.primary, flexShrink: 0 }} />
                   <Panel
                     id="library-panel"
                     defaultSize={rightPanelSize}
@@ -538,7 +482,7 @@ function AppContent() {
                   </Panel>
                 </>
               )}
-            </MainPanelGroup>
+            </Group>
           </ContentWrapper>
         </MainArea>
 

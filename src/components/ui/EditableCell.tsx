@@ -100,7 +100,8 @@ const LoadingOverlay = styled.div`
   border-radius: ${theme.borderRadius.sm};
 `;
 
-const SpinnerIcon = styled(Loader2)`
+const SpinnerWrapper = styled.span`
+  display: inline-flex;
   animation: spin 1s linear infinite;
   color: ${theme.colors.accent.primary};
 
@@ -288,7 +289,9 @@ export function EditableCell({
       )}
       {isSaving && (
         <LoadingOverlay>
-          <SpinnerIcon size={14} />
+          <SpinnerWrapper>
+            <Loader2 size={14} />
+          </SpinnerWrapper>
         </LoadingOverlay>
       )}
     </CellContainer>

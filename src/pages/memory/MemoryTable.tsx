@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import styled from '@emotion/styled';
+import { useShallow } from 'zustand/react/shallow';
 import {
   Plus,
   Trash2,
@@ -12,8 +13,6 @@ import {
 import { theme } from '../../styles';
 import {
   useMemoryStore,
-  selectFilteredEntries,
-  selectVisibleColumnTypes,
   type MemoryValueType,
   type MemoryTableEntry,
   VALUE_TYPE_LABELS,
@@ -51,8 +50,9 @@ interface MemoryTableProps {
 // Styles
 // ============================================================================
 
-const FreezeIcon = styled(Snowflake)<{ $active: boolean }>`
+const FreezeIconWrapper = styled.span<{ $active: boolean }>`
   cursor: pointer;
+  display: inline-flex;
   color: ${({ $active }) =>
     $active ? theme.colors.accent.primary : theme.colors.text.muted};
   transition: color ${theme.transition.fast};
@@ -116,9 +116,12 @@ const SettingsPanel = styled.div`
 export function MemoryTable({ onRpcCall }: MemoryTableProps) {
   const {
     entries,
+    entryOrder,
     selectedIds,
     visibleColumns,
     searchQuery,
+    showOnlyFrozen,
+    showOnlyWatched,
     addEntry,
     removeEntry,
     removeEntries,
@@ -131,10 +134,52 @@ export function MemoryTable({ onRpcCall }: MemoryTableProps) {
     clearSelection,
     setSearchQuery,
     setColumnVisible,
-  } = useMemoryStore();
+  } = useMemoryStore(
+    useShallow((s) => ({
+      entries: s.entries,
+      entryOrder: s.entryOrder,
+      selectedIds: s.selectedIds,
+      visibleColumns: s.visibleColumns,
+      searchQuery: s.searchQuery,
+      showOnlyFrozen: s.showOnlyFrozen,
+      showOnlyWatched: s.showOnlyWatched,
+      addEntry: s.addEntry,
+      removeEntry: s.removeEntry,
+      removeEntries: s.removeEntries,
+      updateValues: s.updateValues,
+      updatePrimaryType: s.updatePrimaryType,
+      updateDescription: s.updateDescription,
+      setFrozen: s.setFrozen,
+      updateFreezeValue: s.updateFreezeValue,
+      select: s.select,
+      clearSelection: s.clearSelection,
+      setSearchQuery: s.setSearchQuery,
+      setColumnVisible: s.setColumnVisible,
+    }))
+  );
 
-  const filteredEntries = useMemoryStore(selectFilteredEntries);
-  const visibleColumnTypes = useMemoryStore(selectVisibleColumnTypes);
+  // Compute filtered entries and visible column types with memoization
+  const filteredEntries = useMemo((): MemoryTableEntry[] => {
+    let result = entryOrder.map((id) => entries[id]).filter(Boolean);
+    if (showOnlyFrozen) result = result.filter((e) => e.frozen);
+    if (showOnlyWatched) result = result.filter((e) => e.watched);
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(
+        (e) =>
+          e.address.toLowerCase().includes(query) ||
+          e.description.toLowerCase().includes(query) ||
+          e.module?.toLowerCase().includes(query)
+      );
+    }
+    return result;
+  }, [entries, entryOrder, showOnlyFrozen, showOnlyWatched, searchQuery]);
+
+  const visibleColumnTypes = useMemo((): MemoryValueType[] => {
+    return (Object.entries(visibleColumns) as [MemoryValueType, boolean][])
+      .filter(([, visible]) => visible)
+      .map(([type]) => type);
+  }, [visibleColumns]);
 
   const [showSettings, setShowSettings] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -461,14 +506,15 @@ export function MemoryTable({ onRpcCall }: MemoryTableProps) {
                 onClick={(e) => handleRowClick(e, entry.id)}
               >
                 <TableCell align="center">
-                  <FreezeIcon
-                    size={14}
+                  <FreezeIconWrapper
                     $active={entry.frozen}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleToggleFreeze(entry);
                     }}
-                  />
+                  >
+                    <Snowflake size={14} />
+                  </FreezeIconWrapper>
                 </TableCell>
                 <TableCell>
                   <AddressCell>{entry.address}</AddressCell>

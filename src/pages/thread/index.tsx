@@ -270,11 +270,11 @@ export function ThreadPage({ hasSession, onRpcCall }: ThreadPageProps) {
           <Flex style={{ height: "100%" }}>
             {/* Thread list */}
             <div style={{ flex: 1, overflow: "auto", borderRight: `1px solid var(--border-primary)` }}>
-              <Table size="sm" hoverable>
+              <Table size="sm" hoverable style={{ tableLayout: 'fixed', width: '100%' }}>
                 <TableHead>
                   <TableRow>
-                    <TableHeader width="80px">ID</TableHeader>
-                    <TableHeader width="100px">State</TableHeader>
+                    <TableHeader style={{ width: 80 }}>ID</TableHeader>
+                    <TableHeader style={{ width: 100 }}>State</TableHeader>
                     <TableHeader>PC</TableHeader>
                   </TableRow>
                 </TableHead>

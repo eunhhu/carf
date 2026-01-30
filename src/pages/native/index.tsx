@@ -408,12 +408,35 @@ export function NativePage({ hasSession, onRpcCall }: NativePageProps) {
                         <TableCell mono truncate>{exp.name}</TableCell>
                         <TableCell mono>{exp.address}</TableCell>
                         <TableCell align="center">
-                          <IconButton
-                            icon={Copy}
-                            size="xs"
-                            onClick={() => copyToClipboard(exp.address)}
-                            tooltip="Copy address"
-                          />
+                          <Flex $gap="2px" $justify="center">
+                            <IconButton
+                              icon={Copy}
+                              size="xs"
+                              onClick={() => copyToClipboard(exp.address)}
+                              tooltip="Copy address"
+                            />
+                            <IconButton
+                              icon={Eye}
+                              size="xs"
+                              onClick={() => useActionStore.getState().navigateToMemory(exp.address, exp.name)}
+                              tooltip="View in Memory"
+                            />
+                            <IconButton
+                              icon={Bookmark}
+                              size="xs"
+                              onClick={() => useLibraryStore.getState().addEntry({
+                                type: exp.type === 'function' ? 'function' : 'address',
+                                name: exp.name,
+                                address: exp.address,
+                                module: selectedModule?.name,
+                                folderId: null,
+                                tags: [],
+                                starred: false,
+                                metadata: {},
+                              })}
+                              tooltip="Add to Library"
+                            />
+                          </Flex>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -441,11 +464,12 @@ export function NativePage({ hasSession, onRpcCall }: NativePageProps) {
                       <TableHeader>Name</TableHeader>
                       <TableHeader width="120px">Module</TableHeader>
                       <TableHeader width="140px">Address</TableHeader>
+                      <TableHeader width="80px" align="center">Actions</TableHeader>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {filteredImports.map((imp, i) => (
-                      <TableRow key={i}>
+                      <TableRow key={i} clickable>
                         <TableCell>
                           <Badge $variant={imp.type === "function" ? "primary" : "default"}>
                             {imp.type}
@@ -454,6 +478,37 @@ export function NativePage({ hasSession, onRpcCall }: NativePageProps) {
                         <TableCell mono truncate>{imp.name}</TableCell>
                         <TableCell>{imp.module}</TableCell>
                         <TableCell mono>{imp.address}</TableCell>
+                        <TableCell align="center">
+                          <Flex $gap="2px" $justify="center">
+                            <IconButton
+                              icon={Copy}
+                              size="xs"
+                              onClick={() => copyToClipboard(imp.address)}
+                              tooltip="Copy address"
+                            />
+                            <IconButton
+                              icon={Eye}
+                              size="xs"
+                              onClick={() => useActionStore.getState().navigateToMemory(imp.address, imp.name)}
+                              tooltip="View in Memory"
+                            />
+                            <IconButton
+                              icon={Bookmark}
+                              size="xs"
+                              onClick={() => useLibraryStore.getState().addEntry({
+                                type: imp.type === 'function' ? 'function' : 'address',
+                                name: imp.name,
+                                address: imp.address,
+                                module: imp.module,
+                                folderId: null,
+                                tags: [],
+                                starred: false,
+                                metadata: {},
+                              })}
+                              tooltip="Add to Library"
+                            />
+                          </Flex>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
