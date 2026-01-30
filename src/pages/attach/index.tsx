@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Play, Square, RefreshCw, Search, Zap } from "lucide-react";
+import { Square, RefreshCw, Search, Zap } from "lucide-react";
 import {
   PageContainer,
   PageHeader,
@@ -58,7 +58,6 @@ export interface AttachPageProps {
   onAttach: (pid: number) => void;
   onDetach: () => void;
   onSpawn: (program: string, argv: string[] | null) => Promise<number | null>;
-  onResume: (pid: number) => void;
   onKill: (pid: number) => void;
 }
 
@@ -79,7 +78,6 @@ export function AttachPage({
   onAttach,
   onDetach,
   onSpawn: _onSpawn, // TODO: implement spawn UI
-  onResume,
   onKill,
 }: AttachPageProps) {
   const [search, setSearch] = useState("");
@@ -217,17 +215,6 @@ export function AttachPage({
                   </TableCell>
                   <TableCell>{process.name}</TableCell>
                   <TableCell align="center">
-                    <Flex $gap="4px" $justify="center">
-                      <IconButton
-                        icon={Play}
-                        size="xs"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onResume(process.pid);
-                        }}
-                        tooltip="Resume"
-                        disabled={busy}
-                      />
                       <IconButton
                         icon={Square}
                         size="xs"
@@ -238,7 +225,6 @@ export function AttachPage({
                         tooltip="Kill"
                         disabled={busy}
                       />
-                    </Flex>
                   </TableCell>
                 </TableRow>
               ))}

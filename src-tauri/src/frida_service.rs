@@ -204,10 +204,27 @@ impl FridaContext {
     }
 
     fn run(&mut self, rx: Receiver<Job>) {
+        // Get the GLib main context for Frida's async operations
+        let main_context = unsafe { frida_sys::frida_get_main_context() };
+
         loop {
-            match rx.recv_timeout(Duration::from_millis(100)) {
-                Ok(job) => job(self),
-                Err(RecvTimeoutError::Timeout) => self.poll_detached_sessions(),
+            // Process any pending GLib events first
+            // This is critical for Frida's async operations like attach/detach
+            unsafe {
+                while frida_sys::g_main_context_iteration(main_context, frida_sys::FALSE as i32) != 0 {}
+            }
+
+            match rx.recv_timeout(Duration::from_millis(10)) {
+                Ok(job) => {
+                    job(self);
+                    // Process GLib events after job completion
+                    unsafe {
+                        while frida_sys::g_main_context_iteration(main_context, frida_sys::FALSE as i32) != 0 {}
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    self.poll_detached_sessions();
+                }
                 Err(RecvTimeoutError::Disconnected) => break,
             }
         }
@@ -342,9 +359,24 @@ impl FridaContext {
             .get_device_by_id(device_id)
             .map_err(|e| e.to_string())?;
 
+        debug_log(&format!(
+            "attach: got device name={} type={} lost={}",
+            device.get_name(),
+            device.get_type(),
+            device.is_lost()
+        ));
+
+        if device.is_lost() {
+            return Err("Device is lost/disconnected".to_string());
+        }
+
         debug_log("attach: about to call device.attach");
-        let session = device.attach(pid).map_err(|e| e.to_string())?;
-        debug_log("attach: device.attach succeeded");
+        let start = Instant::now();
+        let session = device.attach(pid).map_err(|e| {
+            debug_log(&format!("attach: device.attach failed after {:?}: {}", start.elapsed(), e));
+            e.to_string()
+        })?;
+        debug_log(&format!("attach: device.attach succeeded in {:?}", start.elapsed()));
 
         // Keep a ref to the underlying device alive for the lifetime of the session.
         // This prevents potential use-after-free inside Frida when creating/loading scripts.

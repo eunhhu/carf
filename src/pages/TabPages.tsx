@@ -28,7 +28,6 @@ type TabPagesProps = {
   onAttach: (pid: number) => void;
   onDetach: () => void;
   onSpawn: (program: string, argv: string[] | null) => Promise<number | null>;
-  onResume: (pid: number) => void;
   onKill: (pid: number) => void;
 
   // RPC
@@ -53,7 +52,6 @@ export function TabPages({
   onAttach,
   onDetach,
   onSpawn,
-  onResume,
   onKill,
   hasScript,
   onRpcCall,
@@ -88,7 +86,6 @@ export function TabPages({
           onAttach={onAttach}
           onDetach={onDetach}
           onSpawn={onSpawn}
-          onResume={onResume}
           onKill={onKill}
         />
       </div>

@@ -23,6 +23,7 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 frida = { version = "0.17.1", features = ["auto-download"] }
+frida-sys = "0.17.1"
 rdev = { git = "https://github.com/fufesou/rdev" }
 thiserror = "1.0"
 

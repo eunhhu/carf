@@ -173,7 +173,6 @@ function AppContent() {
     attach,
     detach,
     spawn,
-    resume,
     kill,
     agentRequest,
   } = useFridaStore();
@@ -479,7 +478,6 @@ function AppContent() {
                         onAttach={handleAttach}
                         onDetach={handleDetach}
                         onSpawn={handleSpawn}
-                        onResume={resume}
                         onKill={kill}
                         hasScript={hasScript}
                         onRpcCall={handleRpcCall}

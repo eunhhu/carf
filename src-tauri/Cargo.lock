@@ -384,6 +384,7 @@ name = "carf"
 version = "0.1.0"
 dependencies = [
  "frida",
+ "frida-sys",
  "rdev",
  "serde",
  "serde_json",
