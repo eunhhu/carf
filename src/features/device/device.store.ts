@@ -1,0 +1,96 @@
+import { createStore } from "solid-js/store";
+import { createMemo } from "solid-js";
+import type { DeviceInfo } from "~/lib/types";
+import { invoke, listen } from "~/lib/tauri";
+
+interface DeviceState {
+  devices: DeviceInfo[];
+  selectedDeviceId: string | null;
+  loading: boolean;
+  error: string | null;
+}
+
+const [state, setState] = createStore<DeviceState>({
+  devices: [],
+  selectedDeviceId: null,
+  loading: false,
+  error: null,
+});
+
+const selectedDevice = createMemo(() =>
+  state.devices.find((d) => d.id === state.selectedDeviceId) ?? null,
+);
+
+async function refreshDevices(): Promise<void> {
+  setState({ loading: true, error: null });
+  try {
+    const devices = await invoke<DeviceInfo[]>("list_devices");
+    setState({ devices, loading: false });
+  } catch (err) {
+    setState({
+      loading: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function selectDevice(id: string): void {
+  setState("selectedDeviceId", id);
+}
+
+async function addRemoteDevice(address: string): Promise<void> {
+  setState({ loading: true, error: null });
+  try {
+    await invoke("add_remote_device", { address });
+    await refreshDevices();
+  } catch (err) {
+    setState({
+      loading: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function removeRemoteDevice(address: string): Promise<void> {
+  setState({ loading: true, error: null });
+  try {
+    await invoke("remove_remote_device", { address });
+    await refreshDevices();
+  } catch (err) {
+    setState({
+      loading: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function setupDeviceListeners(): () => void {
+  const unlistenAdded = listen<DeviceInfo>("carf://device/added", (device) => {
+    setState("devices", (prev) => {
+      const exists = prev.some((d) => d.id === device.id);
+      return exists ? prev.map((d) => (d.id === device.id ? device : d)) : [...prev, device];
+    });
+  });
+
+  const unlistenRemoved = listen<{ id: string }>("carf://device/removed", ({ id }) => {
+    setState("devices", (prev) => prev.filter((d) => d.id !== id));
+    if (state.selectedDeviceId === id) {
+      setState("selectedDeviceId", null);
+    }
+  });
+
+  return () => {
+    unlistenAdded();
+    unlistenRemoved();
+  };
+}
+
+export {
+  state as deviceState,
+  selectedDevice,
+  refreshDevices,
+  selectDevice,
+  addRemoteDevice,
+  removeRemoteDevice,
+  setupDeviceListeners,
+};

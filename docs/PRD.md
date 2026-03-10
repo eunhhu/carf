@@ -260,34 +260,212 @@ Session.enableChildGating()      → 자식 프로세스 게이팅
 
 #### 4.2.4 Session View (분석 워크스페이스)
 
-Attach/Spawn 성공 후 표시되는 메인 분석 화면. IDE 스타일 레이아웃.
+Attach/Spawn 성공 후 표시되는 메인 분석 화면. IDE-Hybrid 3+1 Pane 레이아웃.
 
-**레이아웃:**
+##### 레이아웃 구조
+
 ```
-┌──────────────────────────────────────────────┐
-│ Session Toolbar (detach, pause, scripts...)  │
-├────────┬─────────────────────┬───────────────┤
-│        │                     │               │
-│  Nav   │   Main Content      │  Inspector    │
-│  Bar   │   (탭 기반)          │  (상세 정보)   │
-│        │                     │               │
-├────────┴─────────────────────┴───────────────┤
-│ Console / Output Panel                       │
-└──────────────────────────────────────────────┘
+┌─ Session Tabs (브라우저 탭 패턴, 최대 5개 동시 세션) ─────────────┐
+├────────┬─────────────────────────────┬────────────────────────────┤
+│        │  Session Toolbar            │                            │
+│  Nav   │  (detach, pause, resume,    │                            │
+│  Bar   │   scripts, pin...)         │   Inspector Panel          │
+│ (48px  ├─────────────────────────────┤   (토글 가능, 기본 320px,    │
+│  icon  │                             │    corvu Resizable)        │
+│  rail) │   Main Content              │                            │
+│        │   (선택된 탭 콘텐츠)          │   - 선택 항목 상세 정보      │
+│        │                             │   - 컨텍스트별 액션 패널      │
+│        │                             │   - 프로퍼티 에디터          │
+│        │                             │                            │
+├────────┴─────────────────────────────┴────────────────────────────┤
+│ Console Panel (하단 고정, 리사이즈/접기 가능, 모든 탭 공유)           │
+│   [Console] [Hook Events] [System] [Timeline]                     │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-**탭 구성 (Phase 1 — Base Setup):**
+**레이아웃 구성 요소:**
 
-| 탭 | 기능 | 우선순위 |
-|----|------|---------|
-| Console | 로그 출력, send/recv 메시지, REPL | P0 |
-| Modules | 로드된 모듈, exports, imports, symbols | P0 |
-| Threads | 스레드 목록, 스택 트레이스 | P0 |
-| Memory | 메모리 맵, 읽기/쓰기, 검색 | P1 |
-| Java | Java 클래스/메서드 탐색, 후킹 | P1 |
-| ObjC | ObjC 클래스/메서드 탐색, 후킹 | P1 |
-| Native | Native 함수, Interceptor, Stalker | P1 |
-| Script | 스크립트 에디터, 실시간 로드/언로드 | P1 |
+| 영역 | 설명 |
+|------|------|
+| **Session Tabs** | 상단 브라우저 탭 패턴. 최대 5개 동시 세션. 탭에 세션 상태(attached/detached/crashed) 표시 |
+| **Left NavBar** | 48px 아이콘 레일. 13개 탭 아이콘 + 구분선 + 설정. 활성 탭 하이라이트 |
+| **Center Main Content** | 선택된 탭의 메인 콘텐츠 영역. 탭별 고유 레이아웃 |
+| **Right Inspector Panel** | 토글 가능 (기본 숨김). 기본 320px, corvu Resizable로 너비 조절. 선택 항목의 상세 정보/액션 표시 |
+| **Bottom Console Panel** | 모든 탭에서 공유되는 하단 고정 패널. 리사이즈/접기 가능. 기본 높이 200px |
+
+##### 탭 구성 (13개)
+
+| # | 탭 | 우선순위 | 아이콘 | 핵심 차별점 |
+|---|-----|---------|--------|-----------|
+| 1 | Console | P0 | Terminal | REPL + 구조화된 이벤트 뷰어 |
+| 2 | Modules | P0 | Package | 10K+ 모듈 가상 스크롤 |
+| 3 | Threads | P0 | CPU | Stalker 통합 + 레지스터 컨텍스트 |
+| 4 | Memory | P1 | Chip | Access Monitor 히트맵 |
+| 5 | Java | P1 | Coffee | Heap 인스턴스 브라우저 |
+| 6 | ObjC | P1 | Apple | Heap 인스턴스 브라우저 |
+| 7 | Native | P1 | Binary | Inline Stalker + 함수 호출기 |
+| 8 | Script | P1 | Code | 템플릿 라이브러리 + 핫 리로드 |
+| 9 | Hooks Manager | P1 | Hook | 통합 훅 관리 + Export/Import |
+| 10 | Pinboard | P1 | Pin | 크로스탭 캐싱 스토리지 |
+| 11 | Call Graph | P2 | Graph | Stalker 시각화 (시장 유일) |
+| 12 | Network Monitor | P2 | Globe | SSL 자동 우회 + HTTP 뷰어 |
+| 13 | File Explorer | P2 | Folder | SQLite 브라우저 + Prefs 에디터 |
+
+##### 탭별 상세
+
+**1. Console (P0)**
+- **레이아웃**: REPL 입력 상단, 구조화된 로그 스트림 하단
+- **데이터 소스**: `send()`/`recv()` 메시지, `console.log`, RPC 응답
+- **핵심 기능**: JavaScript REPL (자동완성, 히스토리), 메시지 타입별 필터링 (log/warning/error/send), JSON 자동 포맷팅, 타임스탬프 표시
+- **Inspector**: 선택한 메시지의 상세 페이로드 표시, 바이너리 데이터 hex 뷰
+
+**2. Modules (P0)**
+- **레이아웃**: 좌측 모듈 리스트 (가상 스크롤), 우측 상세 (exports/imports/symbols)
+- **데이터 소스**: `Process.enumerateModules()`, `Module.enumerateExports/Imports/Symbols()`
+- **핵심 기능**: 10,000+ 모듈 가상 스크롤, 이름/주소 검색, export 타입별 필터 (function/variable), 주소 클릭 시 Memory 탭 이동
+- **Inspector**: 모듈 상세 정보 (base, size, path), 선택 export/import 시그니처
+
+**3. Threads (P0)**
+- **레이아웃**: 스레드 리스트 + 선택 스레드 스택 트레이스
+- **데이터 소스**: `Process.enumerateThreads()`, `Thread.backtrace()`
+- **핵심 기능**: 스레드 상태 표시 (running/waiting/stopped), 레지스터 컨텍스트 표시 (PC, SP, LR 등), 스택 프레임 심볼 해석, Stalker 연동 (스레드 단위 트레이싱 시작/중지)
+- **Inspector**: 전체 레지스터 뷰, 스택 프레임 상세
+
+**4. Memory (P1)**
+- **레이아웃**: 메모리 맵 상단, hex 에디터 하단
+- **데이터 소스**: `Process.enumerateRanges()`, `Memory.read/write*()`
+- **핵심 기능**: 메모리 범위 필터 (protection 기반), 패턴/값 검색 (RustModule 고속 스캔), hex 에디터 (읽기/쓰기), Access Monitor 히트맵 (MemoryAccessMonitor 기반 접근 빈도 시각화)
+- **Inspector**: 선택 주소의 모듈/심볼 정보, 메모리 보호 속성 변경
+
+**5. Java (P1)**
+- **레이아웃**: 클래스 트리 좌측, 메서드/필드 리스트 우측
+- **데이터 소스**: `Java.enumerateLoadedClasses()`, `Java.use()`, `Java.choose()`
+- **핵심 기능**: 클래스 계층 트리 탐색, 메서드/필드 열거, 원클릭 메서드 후킹, Heap 인스턴스 브라우저 (`Java.choose()`로 런타임 인스턴스 검색/조작), 오버로드 메서드 구분
+- **Inspector**: 클래스/메서드 시그니처, 후킹 옵션 설정, 인스턴스 필드 값 편집
+
+**6. ObjC (P1)**
+- **레이아웃**: 클래스 리스트 좌측, 메서드(+/-) 리스트 우측
+- **데이터 소스**: `ObjC.enumerateLoadedClasses()`, `ObjC.classes[]`
+- **핵심 기능**: 클래스/프로토콜 탐색, 인스턴스/클래스 메서드 열거, 원클릭 메서드 후킹, Heap 인스턴스 브라우저 (`ObjC.choose()`로 런타임 인스턴스 검색/조작), 프로토콜 필터링
+- **Inspector**: 메서드 시그니처 (타입 인코딩 해석), 후킹 옵션 설정, 인스턴스 ivar 값 편집
+
+**7. Native (P1)**
+- **레이아웃**: 함수 리스트/검색 상단, 후킹 설정/결과 하단
+- **데이터 소스**: Module exports, 사용자 지정 주소, `Interceptor`, `Stalker`
+- **핵심 기능**: 주소/심볼 기반 함수 후킹 (Interceptor), Inline Stalker (함수 단위 instruction 트레이싱), 함수 호출기 (`NativeFunction`으로 인자 지정 후 직접 호출), 리턴값/인자 변조
+- **Inspector**: 함수 시그니처 편집, onEnter/onLeave 콜백 설정, Stalker 이벤트 상세
+
+**8. Script (P1)**
+- **레이아웃**: 에디터 (Monaco) 전체 너비, 하단 실행 결과
+- **데이터 소스**: 로컬 파일시스템, 내장 템플릿
+- **핵심 기능**: Monaco 에디터 (TypeScript 지원, Frida API 자동완성), 템플릿 라이브러리 (SSL Pinning Bypass, Root Detection 등 프리셋), 핫 리로드 (저장 시 자동 reload), 멀티 스크립트 탭
+- **Inspector**: 스크립트 메타데이터, 실행 상태, 에러 로그
+
+**9. Hooks Manager (P1)**
+- **레이아웃**: 훅 리스트 테이블 (전체 너비)
+- **데이터 소스**: 모든 탭에서 생성된 훅의 통합 저장소
+- **핵심 기능**: 전체 활성 훅 목록 (Java/ObjC/Native 통합), 훅별 활성화/비활성화 토글, 훅 설정 Export/Import (JSON), 훅 그룹핑 (태그 기반), 히트 카운트 표시
+- **Inspector**: 훅 상세 설정 (콜백 코드, 조건, 로깅 옵션)
+
+**10. Pinboard (P1)**
+- **레이아웃**: 핀 아이템 그리드/리스트 뷰 전환
+- **데이터 소스**: 사용자가 다른 탭에서 핀한 항목
+- **핵심 기능**: 크로스탭 캐싱 스토리지 (분석 중 중요 항목을 핀하여 빠른 접근), PinItem 타입 6종 지원 (아래 Pinboard 시스템 참조), 태그/메모 기능, Export/Import
+- **Inspector**: 핀 항목의 원본 데이터 상세, 메모 편집
+
+**11. Call Graph (P2)**
+- **레이아웃**: 그래프 캔버스 (전체 영역), 좌측 제어 패널
+- **데이터 소스**: `Stalker` 이벤트 (call/ret/exec)
+- **핵심 기능**: Stalker 수집 데이터를 방향 그래프로 시각화, 노드 = 함수, 엣지 = 호출 관계, 줌/팬/필터, 호출 빈도 히트맵, 시장에서 유일한 GUI 기반 Stalker 시각화
+- **Inspector**: 선택 노드(함수)의 상세 정보, 호출 횟수, 연결된 모듈
+
+**12. Network Monitor (P2)**
+- **레이아웃**: 요청 리스트 상단, 요청/응답 상세 하단
+- **데이터 소스**: `send()`/`recv()` + SSL 바이패스 스크립트, socket API 후킹
+- **핵심 기능**: HTTP/HTTPS 요청 캡처, SSL Pinning 자동 우회 (인증서 검증 후킹), 요청/응답 헤더/바디 표시, JSON 자동 포맷팅, URL/메서드 필터링
+- **Inspector**: 요청/응답 전체 상세, 바이너리 바디 hex 뷰, cURL 커맨드 복사
+
+**13. File Explorer (P2)**
+- **레이아웃**: 파일 트리 좌측, 파일 뷰어/에디터 우측
+- **데이터 소스**: `Frida File API` + 에이전트 측 파일 열거
+- **핵심 기능**: 대상 프로세스 샌드박스 파일 탐색, SQLite 데이터베이스 브라우저 (테이블/쿼리), SharedPreferences / NSUserDefaults 에디터, 파일 다운로드/업로드
+- **Inspector**: 파일 메타데이터 (크기, 권한, 수정일), 바이너리 파일 hex 프리뷰
+
+##### Console Panel (하단 공유 패널)
+
+모든 탭에서 공유되는 하단 고정 패널. 세션 전체의 이벤트/로그를 실시간 표시.
+
+**서브탭:**
+
+| 서브탭 | 설명 |
+|--------|------|
+| **Console** | `console.log`/`warn`/`error` 출력, 간단한 REPL 입력 |
+| **Hook Events** | 활성 훅의 onEnter/onLeave 이벤트 스트림 (인자, 리턴값, 스택) |
+| **System** | 세션 상태 변경, 에러, 디바이스 이벤트 등 시스템 메시지 |
+| **Timeline** | 이벤트 타임라인 (시간순 정렬, 타입별 필터, 시각적 타임라인 바) |
+
+**버퍼 설정:**
+- 기본: 10,000 메시지
+- 설정 가능 범위: 1,000 ~ 100,000
+- 버퍼 초과 시 FIFO 방식으로 오래된 메시지 제거
+- 일시정지(pause) 기능으로 스크롤 락
+
+##### Pinboard 시스템
+
+분석 중 중요 항목을 크로스탭으로 캐싱하여 빠른 접근을 제공하는 시스템.
+
+**PinItem 타입 (6종):**
+
+| 타입 | 설명 | 핀 소스 탭 |
+|------|------|-----------|
+| **Module** | 모듈 정보 (이름, base, size, path) | Modules |
+| **Address** | 메모리 주소 + 컨텍스트 (심볼, 모듈 오프셋) | Memory, Modules |
+| **Function** | 함수 정보 (주소, 심볼, 시그니처) | Modules, Native |
+| **Thread** | 스레드 정보 (ID, 상태, 스택) | Threads |
+| **Class** | Java/ObjC 클래스 정보 | Java, ObjC |
+| **Hook** | 훅 설정 스냅샷 | Hooks Manager, Java, ObjC, Native |
+
+**기능:**
+- **클릭 → 이동**: 핀 아이템 클릭 시 해당 탭으로 자동 이동 + 항목 포커스
+- **우클릭 컨텍스트 메뉴**: 이동, 복사, 태그 편집, 메모 추가, 삭제
+- **태그**: 사용자 정의 태그로 핀 아이템 분류
+- **메모**: 각 핀 아이템에 자유 텍스트 메모 첨부
+- **Export/Import**: 핀보드 전체를 JSON으로 내보내기/가져오기 (팀 공유, 분석 기록)
+
+##### 크로스탭 네비게이션
+
+탭 간 데이터 연동을 위한 `navigateTo()` 함수 기반 네비게이션 시스템.
+
+```typescript
+// 크로스탭 이동 예시
+navigateTo("memory", { address: "0x7fff12340000" })    // Memory 탭으로 이동 + 주소 포커스
+navigateTo("modules", { module: "libc.so" })            // Modules 탭으로 이동 + 모듈 선택
+navigateTo("native", { address: "0x7fff12345678", action: "hook" })  // Native 탭 + 즉시 후킹
+navigateTo("java", { className: "com.example.MainActivity" })       // Java 탭 + 클래스 선택
+```
+
+**사용 예:**
+- Modules 탭에서 export 주소 클릭 → Memory 탭에서 해당 주소 표시
+- Threads 탭에서 스택 프레임 클릭 → Modules 탭에서 해당 모듈+오프셋 표시
+- Pinboard에서 핀 아이템 클릭 → 원본 탭으로 이동 + 항목 하이라이트
+- Hook Events에서 이벤트 클릭 → Hooks Manager에서 해당 훅 선택
+
+##### 키보드 단축키
+
+| 단축키 | 동작 |
+|--------|------|
+| `Cmd/Ctrl + 1~9` | 탭 1~9 전환 |
+| `Cmd/Ctrl + 0` | 탭 10 이상 전환 (Pinboard) |
+| `Cmd/Ctrl + \`` | Console Panel 토글 (접기/펴기) |
+| `Cmd/Ctrl + B` | Inspector Panel 토글 |
+| `Cmd/Ctrl + K` | 글로벌 검색 (Command Palette) |
+| `Cmd/Ctrl + P` | 선택 항목 Pinboard에 추가 |
+| `Cmd/Ctrl + Shift + P` | Pinboard 탭으로 이동 |
+| `Cmd/Ctrl + F` | 현재 탭 내 검색 |
+| `Cmd/Ctrl + W` | 현재 세션 탭 닫기 (detach 확인) |
+| `Cmd/Ctrl + Shift + E` | Script 에디터 포커스 |
+| `Cmd/Ctrl + Enter` | REPL / Script 실행 |
+| `Escape` | Inspector/Console 패널 닫기 |
 
 ---
 
@@ -400,15 +578,19 @@ carf/
 │   │   │   └── device.types.ts
 │   │   ├── process/              # 프로세스 관리
 │   │   ├── session/              # 세션 관리 (attach/spawn)
-│   │   ├── console/              # 콘솔/로그
+│   │   ├── console/              # 콘솔/로그 + REPL
+│   │   ├── module/               # 모듈 탐색
+│   │   ├── thread/               # 스레드 분석
 │   │   ├── memory/               # 메모리 분석
-│   │   ├── hooks/                # Interceptor 관리
 │   │   ├── java/                 # Java 런타임
 │   │   ├── objc/                 # ObjC 런타임
 │   │   ├── native/               # Native 분석
-│   │   ├── thread/               # 스레드 분석
-│   │   ├── module/               # 모듈 탐색
-│   │   └── script/               # 스크립트 에디터
+│   │   ├── script/               # 스크립트 에디터
+│   │   ├── hooks-manager/        # 통합 훅 관리
+│   │   ├── pinboard/             # 크로스탭 캐싱 스토리지
+│   │   ├── call-graph/           # Stalker 시각화
+│   │   ├── network/              # 네트워크 모니터
+│   │   └── file-explorer/        # 파일 탐색기
 │   │
 │   ├── lib/                      # 유틸리티, 헬퍼
 │   │   ├── tauri.ts              # Tauri IPC 래퍼
@@ -518,26 +700,33 @@ carf/
 - [ ] Attach/Spawn 모달 (전체 옵션)
 - [ ] 세션 생명주기 관리
 
-### Phase 2 — CARF Std Script (Base)
+### Phase 2 — CARF Std Script + Session View Base (P0 탭)
 - [ ] RPC 라우터 구현
-- [ ] 모듈 열거
-- [ ] 스레드 열거 및 백트레이스
-- [ ] 기본 메모리 읽기/쓰기
-- [ ] Console (send/recv, REPL)
+- [ ] Session View IDE-Hybrid 레이아웃 (NavBar, Inspector, Console Panel)
+- [ ] Console 탭 (REPL, 구조화된 이벤트 뷰어)
+- [ ] Modules 탭 (10K+ 가상 스크롤, exports/imports/symbols)
+- [ ] Threads 탭 (스택 트레이스, 레지스터 컨텍스트)
+- [ ] Console Panel (서브탭: Console, Hook Events, System, Timeline)
+- [ ] 크로스탭 네비게이션 (`navigateTo()`)
+- [ ] 키보드 단축키 시스템
 
-### Phase 3 — Analysis Features
-- [ ] Java 런타임 탐색 및 후킹
-- [ ] ObjC 런타임 탐색 및 후킹
-- [ ] Native 함수 Interceptor
-- [ ] 메모리 스캔 (패턴, 값)
-- [ ] Stalker (코드 트레이싱)
+### Phase 3 — Analysis Features (P1 탭)
+- [ ] Memory 탭 (hex 에디터, 패턴/값 검색, Access Monitor 히트맵)
+- [ ] Java 탭 (클래스/메서드 탐색, 후킹, Heap 인스턴스 브라우저)
+- [ ] ObjC 탭 (클래스/메서드 탐색, 후킹, Heap 인스턴스 브라우저)
+- [ ] Native 탭 (Interceptor, Inline Stalker, 함수 호출기)
+- [ ] Script 탭 (Monaco 에디터, 템플릿 라이브러리, 핫 리로드)
+- [ ] Hooks Manager 탭 (통합 훅 관리, Export/Import)
+- [ ] Pinboard 탭 (크로스탭 캐싱, 6종 PinItem, 태그/메모)
 
-### Phase 4 — Advanced (향후)
+### Phase 4 — Advanced Features (P2 탭 + 확장)
+- [ ] Call Graph 탭 (Stalker 시각화, 방향 그래프)
+- [ ] Network Monitor 탭 (SSL 자동 우회, HTTP 뷰어)
+- [ ] File Explorer 탭 (SQLite 브라우저, Prefs 에디터)
 - [ ] RustModule 기반 고성능 콜백 전환
 - [ ] 퍼징 엔진
 - [ ] 디컴파일러 연동
 - [ ] 덤프 (DEX, SO, dylib)
-- [ ] 스크립트 에디터 (Monaco)
 - [ ] 플러그인 시스템
 - [ ] 세션 저장/복원
 - [ ] 멀티 디바이스 동시 분석

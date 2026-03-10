@@ -1,0 +1,11 @@
+{
+  "name": "@carf/agent",
+  "private": true,
+  "scripts": {
+    "build": "frida-compile src/index.ts -o dist/_agent.js"
+  },
+  "devDependencies": {
+    "@types/frida-gum": "^18.0.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -14,6 +14,16 @@
    - 2.4 [Agent RPC Proxy](#24-agent-rpc-proxy)
    - 2.5 [ADB Commands](#25-adb-commands)
 3. [Tauri Events (Backend → Frontend)](#3-tauri-events)
+   - 3.1 [Device Events](#31-device-events)
+   - 3.2 [Session Events](#32-session-events)
+   - 3.3 [Agent Events](#33-agent-events)
+   - 3.4 [Process Events](#34-process-events)
+   - 3.5 [Hook Events](#35-hook-events)
+   - 3.6 [Scan Events](#36-scan-events)
+   - 3.7 [Network Events](#37-network-events)
+   - 3.8 [Stalker Events](#38-stalker-events)
+   - 3.9 [Memory Monitor Events](#39-memory-monitor-events)
+   - 3.10 [Module Events](#310-module-events)
 4. [Agent RPC Methods](#4-agent-rpc-methods)
    - 4.1 [Process / Module](#41-process--module)
    - 4.2 [Thread](#42-thread)
@@ -23,6 +33,11 @@
    - 4.6 [Native](#46-native)
    - 4.7 [Stalker](#47-stalker)
    - 4.8 [Hook Management](#48-hook-management)
+   - 4.9 [Console / Evaluate](#49-console--evaluate)
+   - 4.10 [Hooks Manager](#410-hooks-manager)
+   - 4.11 [Network Monitor](#411-network-monitor)
+   - 4.12 [Filesystem](#412-filesystem)
+   - 4.13 [Memory Monitor](#413-memory-monitor)
 5. [Type Definitions](#5-type-definitions)
 6. [Error Codes](#6-error-codes)
 
@@ -1014,6 +1029,118 @@ Child gating이 활성화된 상태에서 자식 프로세스가 생성되었을
   "moduleName": "libexample.so",
   "offset": 4096,
   "value": "48 65 6C 6C 6F 20 57 6F 72 6C 64"
+}
+```
+
+---
+
+### 3.7 Network Events
+
+#### `carf://network/request`
+
+HTTP/HTTPS 요청이 캡처되었을 때 수신한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Event** | `carf://network/request` |
+| **Payload** | `NetworkRequest` |
+| **발행 조건** | 네트워크 모니터링 중 HTTP/HTTPS 요청 캡처 시 |
+
+```json
+// payload 예시
+{
+  "id": "req_001",
+  "timestamp": 1710000000000,
+  "method": "POST",
+  "url": "https://api.example.com/login",
+  "statusCode": 200,
+  "requestHeaders": { "Content-Type": "application/json" },
+  "responseHeaders": { "Content-Type": "application/json" },
+  "requestBody": "{\"username\":\"test\"}",
+  "responseBody": "{\"token\":\"abc\"}",
+  "duration": 120,
+  "protocol": "https",
+  "source": "java"
+}
+```
+
+---
+
+### 3.8 Stalker Events
+
+#### `carf://stalker/event`
+
+Stalker 트레이싱 중 call/ret/exec/block 이벤트가 캡처되었을 때 수신한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Event** | `carf://stalker/event` |
+| **Payload** | `StalkerEvent` |
+| **발행 조건** | Stalker 트레이싱 중 call/ret/exec/block 이벤트 발생 시 |
+
+```json
+// payload 예시
+{
+  "sessionId": "sess_a1b2c3d4",
+  "threadId": 12345,
+  "type": "call",
+  "from": "0x7fff20345678",
+  "to": "0x7fff20345abc",
+  "fromModule": "libexample.so",
+  "toModule": "libc.so",
+  "fromSymbol": "main",
+  "toSymbol": "malloc",
+  "depth": 3
+}
+```
+
+---
+
+### 3.9 Memory Monitor Events
+
+#### `carf://memory/access`
+
+MemoryAccessMonitor가 메모리 읽기/쓰기를 감지했을 때 수신한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Event** | `carf://memory/access` |
+| **Payload** | `MemoryAccessEvent` |
+| **발행 조건** | MemoryAccessMonitor가 read/write 감지 시 |
+
+```json
+// payload 예시
+{
+  "sessionId": "sess_a1b2c3d4",
+  "address": "0x7a12345000",
+  "size": 8,
+  "operation": "write",
+  "from": "0x7fff20345678",
+  "timestamp": 1710000000000
+}
+```
+
+---
+
+### 3.10 Module Events
+
+#### `carf://module/loaded`
+
+대상 프로세스에서 새로운 모듈이 로드되었을 때 수신한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Event** | `carf://module/loaded` |
+| **Payload** | `ModuleInfo` |
+| **발행 조건** | 대상 프로세스에서 새 모듈 로드 시 |
+
+```json
+// payload 예시
+{
+  "name": "libcrypto.so",
+  "base": "0x7a12340000",
+  "size": 1048576,
+  "path": "/system/lib64/libcrypto.so"
 }
 ```
 
@@ -2045,6 +2172,382 @@ await invoke("rpc_call", {
 
 ---
 
+### 4.9 Console / Evaluate
+
+#### `evaluate`
+
+Agent 컨텍스트에서 JavaScript 코드를 실행하고 결과를 반환한다 (REPL).
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `evaluate` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `{ result: string; type: string; error?: string }` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `code` | `string` | Y | 실행할 JavaScript 코드 |
+
+```typescript
+// 호출 예시
+const result = await invoke("rpc_call", {
+  session_id: sid,
+  method: "evaluate",
+  params: { code: "Process.id" }
+});
+// => { result: "12345", type: "number" }
+```
+
+---
+
+### 4.10 Hooks Manager
+
+#### `listHooks` (확장)
+
+활성 훅 목록을 반환한다. 타입별 필터링을 지원한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `listHooks` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `HookInfo[]` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `type` | `"java" \| "objc" \| "native"` | N | 훅 타입 필터 |
+
+---
+
+#### `enableHook` / `disableHook` (확장)
+
+훅의 활성 상태를 토글한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `enableHook` / `disableHook` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `void` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `hookId` | `string` | Y | 대상 훅 ID |
+
+---
+
+#### `removeHook`
+
+단일 훅을 제거한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `removeHook` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `void` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `hookId` | `string` | Y | 제거할 훅 ID |
+
+---
+
+#### `exportHooks`
+
+모든 훅 설정을 JSON으로 내보낸다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `exportHooks` |
+| **Parameters** | 없음 |
+| **Returns** | `{ hooks: HookConfig[]; version: string }` |
+
+```typescript
+// 호출 예시
+const exported = await invoke("rpc_call", {
+  session_id: sid,
+  method: "exportHooks"
+});
+// => { hooks: [...], version: "1.0" }
+```
+
+---
+
+#### `importHooks`
+
+훅 설정을 가져온다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `importHooks` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `{ imported: number; failed: number }` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `hooks` | `HookConfig[]` | Y | 가져올 훅 설정 배열 |
+| `version` | `string` | Y | 설정 버전 |
+
+```typescript
+// 호출 예시
+const result = await invoke("rpc_call", {
+  session_id: sid,
+  method: "importHooks",
+  params: { hooks: [...], version: "1.0" }
+});
+// => { imported: 5, failed: 1 }
+```
+
+---
+
+### 4.11 Network Monitor
+
+#### `startNetworkCapture` / `stopNetworkCapture`
+
+HTTP/HTTPS 트래픽 캡처를 시작/중지한다. SSL 피닝 바이패스가 자동으로 적용된다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `startNetworkCapture` / `stopNetworkCapture` |
+| **Parameters** | 없음 |
+| **Returns** | `void` |
+
+```typescript
+// 캡처 시작
+await invoke("rpc_call", {
+  session_id: sid,
+  method: "startNetworkCapture"
+});
+
+// 캡처 중지
+await invoke("rpc_call", {
+  session_id: sid,
+  method: "stopNetworkCapture"
+});
+```
+
+---
+
+#### `getNetworkRequests`
+
+캡처된 네트워크 요청을 조회한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `getNetworkRequests` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `NetworkRequest[]` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `limit` | `number` | N | 최대 반환 개수 |
+| `filter` | `object` | N | 필터 조건 |
+| `filter.domain` | `string` | N | 도메인 필터 |
+| `filter.method` | `string` | N | HTTP 메서드 필터 (GET, POST 등) |
+| `filter.status` | `number` | N | HTTP 상태 코드 필터 |
+
+```typescript
+// 호출 예시
+const requests = await invoke("rpc_call", {
+  session_id: sid,
+  method: "getNetworkRequests",
+  params: { limit: 50, filter: { domain: "api.example.com" } }
+});
+```
+
+---
+
+### 4.12 Filesystem
+
+#### `listDirectory`
+
+지정 경로의 파일/디렉토리 목록을 반환한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `listDirectory` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `FileEntry[]` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `path` | `string` | Y | 탐색할 경로 |
+
+```typescript
+// 호출 예시
+const files = await invoke("rpc_call", {
+  session_id: sid,
+  method: "listDirectory",
+  params: { path: "/data/data/com.example.app" }
+});
+```
+
+---
+
+#### `readFile`
+
+파일 내용을 읽는다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `readFile` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `{ content: string; size: number }` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `path` | `string` | Y | 읽을 파일 경로 |
+| `encoding` | `"utf8" \| "hex" \| "base64"` | N | 인코딩 (기본값: `"utf8"`) |
+
+---
+
+#### `sqliteQuery`
+
+SQLite 데이터베이스에서 SQL 쿼리를 실행한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `sqliteQuery` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `{ columns: string[]; rows: unknown[][] }` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `path` | `string` | Y | SQLite DB 파일 경로 |
+| `query` | `string` | Y | 실행할 SQL 쿼리 |
+
+```typescript
+// 호출 예시
+const result = await invoke("rpc_call", {
+  session_id: sid,
+  method: "sqliteQuery",
+  params: {
+    path: "/data/data/com.example.app/databases/app.db",
+    query: "SELECT * FROM users LIMIT 10"
+  }
+});
+// => { columns: ["id", "name", "email"], rows: [[1, "test", "test@example.com"], ...] }
+```
+
+---
+
+#### `sqliteTables`
+
+SQLite 데이터베이스의 테이블 목록을 반환한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `sqliteTables` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `string[]` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `path` | `string` | Y | SQLite DB 파일 경로 |
+
+---
+
+#### `readSharedPreferences`
+
+Android SharedPreferences 파일을 읽는다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `readSharedPreferences` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `{ name: string; data: Record<string, unknown> }[]` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `name` | `string` | N | 특정 SharedPreferences 파일 이름 (미지정 시 전체) |
+
+```typescript
+// 호출 예시
+const prefs = await invoke("rpc_call", {
+  session_id: sid,
+  method: "readSharedPreferences",
+  params: { name: "user_settings" }
+});
+// => [{ name: "user_settings", data: { "theme": "dark", "notifications": true } }]
+```
+
+---
+
+#### `writeSharedPreferences`
+
+SharedPreferences에 값을 쓴다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `writeSharedPreferences` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `void` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `name` | `string` | Y | SharedPreferences 파일 이름 |
+| `key` | `string` | Y | 키 |
+| `value` | `unknown` | Y | 값 |
+| `type` | `"string" \| "int" \| "boolean" \| "float" \| "long"` | Y | 값 타입 |
+
+---
+
+#### `downloadFile`
+
+대상 디바이스에서 호스트로 파일을 다운로드한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `downloadFile` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `ArrayBuffer` (바이너리 데이터, `send`를 통해 전달) |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `path` | `string` | Y | 다운로드할 파일 경로 |
+
+---
+
+### 4.13 Memory Monitor
+
+#### `startMemoryMonitor` / `stopMemoryMonitor`
+
+MemoryAccessMonitor를 시작/중지한다. 히트맵 시각화를 위한 메모리 접근 감시.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `startMemoryMonitor` / `stopMemoryMonitor` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `void` |
+
+**`startMemoryMonitor` 파라미터:**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `ranges` | `{ base: string; size: number }[]` | Y | 감시할 메모리 범위 배열 |
+
+**`stopMemoryMonitor` 파라미터:** 없음
+
+```typescript
+// 시작 예시
+await invoke("rpc_call", {
+  session_id: sid,
+  method: "startMemoryMonitor",
+  params: {
+    ranges: [
+      { base: "0x7a12340000", size: 4096 },
+      { base: "0x7a12350000", size: 8192 }
+    ]
+  }
+});
+
+// 중지 예시
+await invoke("rpc_call", {
+  session_id: sid,
+  method: "stopMemoryMonitor"
+});
+```
+
+---
+
 ## 5. Type Definitions
 
 Frontend와 Backend 간에 공유되는 모든 타입 정의.
@@ -2538,6 +3041,171 @@ interface ScanProgressEvent {
   /** 전체 범위 */
   total: number;
 }
+```
+
+### 5.12 Network Types
+
+```typescript
+/** 네트워크 요청 정보 */
+interface NetworkRequest {
+  /** 요청 고유 ID */
+  id: string;
+  /** 타임스탬프 (Unix ms) */
+  timestamp: number;
+  /** HTTP 메서드 (GET, POST 등) */
+  method: string;
+  /** 요청 URL */
+  url: string;
+  /** HTTP 상태 코드 (응답 전이면 null) */
+  statusCode: number | null;
+  /** 요청 헤더 */
+  requestHeaders: Record<string, string>;
+  /** 응답 헤더 */
+  responseHeaders: Record<string, string>;
+  /** 요청 바디 (nullable) */
+  requestBody: string | null;
+  /** 응답 바디 (nullable) */
+  responseBody: string | null;
+  /** 응답 시간 ms (응답 전이면 null) */
+  duration: number | null;
+  /** 프로토콜 */
+  protocol: "http" | "https";
+  /** 캡처 레이어 */
+  source: "native" | "java" | "objc";
+}
+```
+
+### 5.13 Filesystem Types
+
+```typescript
+/** 파일/디렉토리 엔트리 */
+interface FileEntry {
+  /** 파일명 */
+  name: string;
+  /** 전체 경로 */
+  path: string;
+  /** 엔트리 타입 */
+  type: "file" | "directory" | "symlink";
+  /** 파일 크기 (bytes) */
+  size: number;
+  /** 퍼미션 문자열 (예: "rwxr-xr-x") */
+  permissions: string;
+  /** 수정 시각 (Unix ms, nullable) */
+  modified: number | null;
+}
+```
+
+### 5.14 Stalker Types
+
+```typescript
+/** Stalker 이벤트 */
+interface StalkerEvent {
+  /** 세션 ID */
+  sessionId: string;
+  /** 스레드 ID */
+  threadId: number;
+  /** 이벤트 타입 */
+  type: "call" | "ret" | "exec" | "block";
+  /** 출발 주소 */
+  from: string;
+  /** 도착 주소 */
+  to: string;
+  /** 출발 모듈명 (nullable) */
+  fromModule: string | null;
+  /** 도착 모듈명 (nullable) */
+  toModule: string | null;
+  /** 출발 심볼명 (nullable) */
+  fromSymbol: string | null;
+  /** 도착 심볼명 (nullable) */
+  toSymbol: string | null;
+  /** 호출 깊이 */
+  depth: number;
+}
+```
+
+### 5.15 Memory Monitor Types
+
+```typescript
+/** 메모리 접근 이벤트 */
+interface MemoryAccessEvent {
+  /** 세션 ID */
+  sessionId: string;
+  /** 접근된 메모리 주소 */
+  address: string;
+  /** 접근 크기 (bytes) */
+  size: number;
+  /** 접근 유형 */
+  operation: "read" | "write" | "execute";
+  /** 접근한 명령어 주소 */
+  from: string;
+  /** 타임스탬프 (Unix ms) */
+  timestamp: number;
+}
+```
+
+### 5.16 Hook Config Types
+
+```typescript
+/** 훅 설정 (export/import용) */
+interface HookConfig {
+  /** 훅 타입 */
+  type: "java" | "objc" | "native";
+  /** 훅 대상 (메서드명 또는 함수명) */
+  target: string;
+  /** 주소 (native 전용, nullable) */
+  address: string | null;
+  /** 훅 옵션 */
+  options: {
+    /** 인자 캡처 여부 */
+    captureArgs: boolean;
+    /** 리턴값 캡처 여부 */
+    captureRetval: boolean;
+    /** 백트레이스 캡처 여부 */
+    captureBacktrace: boolean;
+  };
+}
+```
+
+### 5.17 Pin Types
+
+```typescript
+/** 핀보드 아이템 */
+interface PinItem {
+  /** 핀 고유 ID */
+  id: string;
+  /** 핀 대상 타입 */
+  type: "module" | "address" | "function" | "thread" | "class" | "hook";
+  /** 표시 이름 */
+  name: string;
+  /** 주소 (nullable) */
+  address: string | null;
+  /** 핀이 생성된 탭 */
+  source: TabId;
+  /** 태그 목록 */
+  tags: string[];
+  /** 메모 */
+  memo: string;
+  /** 추가 메타데이터 */
+  metadata: Record<string, unknown>;
+  /** 핀 생성 시각 (Unix ms) */
+  pinnedAt: number;
+}
+
+/** 탭 ID */
+type TabId =
+  | "console"
+  | "modules"
+  | "threads"
+  | "memory"
+  | "java"
+  | "objc"
+  | "native"
+  | "script"
+  | "hooks"
+  | "pinboard"
+  | "callgraph"
+  | "network"
+  | "files";
 ```
 
 ---

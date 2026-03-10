@@ -28,3 +28,16 @@ dist-ssr
 
 # Rust build artifacts
 target/
+
+# Tauri generated
+src-tauri/gen/
+
+# Agent build
+src-agent/dist/
+src-agent/node_modules/
+
+# AI
+.omc
+.omx
+.omo
+.claude
