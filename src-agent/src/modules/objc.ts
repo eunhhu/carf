@@ -1,3 +1,4 @@
+import { ObjCRuntime as ObjC } from "../bridges";
 import { registerHandler } from "../rpc/router";
 import { emitHookEvent } from "../rpc/protocol";
 

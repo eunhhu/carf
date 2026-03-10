@@ -110,7 +110,7 @@ fn setup_device_change_listener(app: &tauri::App) {
         loop {
             // Acquire the Frida service through the managed state
             let state = app_handle.state::<AppState>();
-            if let Ok(svc) = state.frida_service.lock() {
+            if let Ok(mut svc) = state.frida_service.lock() {
                 if let Ok(current_devices) = svc.list_devices() {
                     let current_ids: HashSet<String> =
                         current_devices.iter().map(|d| d.id.clone()).collect();
@@ -119,7 +119,6 @@ fn setup_device_change_listener(app: &tauri::App) {
                         // Emit added events for new devices
                         for device in &current_devices {
                             if !known.contains(&device.id) {
-                                let _ = app_handle.emit("carf://device/added", device);
                                 state.events.emit(
                                     "carf://device/added",
                                     serde_json::to_value(device).unwrap_or_default(),
@@ -131,11 +130,9 @@ fn setup_device_change_listener(app: &tauri::App) {
                         // Emit removed events for disappeared devices
                         for id in known.iter() {
                             if !current_ids.contains(id) {
-                                let _ = app_handle
-                                    .emit("carf://device/removed", serde_json::json!({ "id": id }));
                                 state
                                     .events
-                                    .emit("carf://device/removed", serde_json::json!({ "id": id }));
+                                    .emit("carf://device/removed", serde_json::json!(id));
                                 log::info!("Device removed: {id}");
                             }
                         }

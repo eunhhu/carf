@@ -35,6 +35,10 @@ src-tauri/gen/
 # Agent build
 src-agent/dist/
 src-agent/node_modules/
+src-agent/.carf-runtime/
+
+# Superpowers brainstorm
+.superpowers/
 
 # AI
 .omc

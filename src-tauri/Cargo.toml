@@ -5,6 +5,7 @@ description = "CARF - Cross-platform Application Runtime Framework"
 authors = ["CARF Contributors"]
 edition = "2021"
 rust-version = "1.77.2"
+default-run = "carf"
 
 [lib]
 name = "carf_lib"
@@ -29,6 +30,9 @@ env_logger = "0.11"
 futures-core = "0.3"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync"] }
 tower-http = { version = "0.6", features = ["cors"] }
+frida = { path = "vendor/frida", features = ["auto-download"] }
+frida-sys = { version = "0.17.1", features = ["auto-download"] }
+libc = "0.2"
 
 [profile.release]
 panic = "abort"

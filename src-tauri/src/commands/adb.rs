@@ -44,10 +44,7 @@ pub fn adb_push_frida_server(
 
 /// Starts frida-server in the background on the device.
 #[tauri::command]
-pub fn adb_start_frida_server(
-    state: State<'_, AppState>,
-    serial: String,
-) -> Result<(), AppError> {
+pub fn adb_start_frida_server(state: State<'_, AppState>, serial: String) -> Result<(), AppError> {
     let svc = state
         .adb_service
         .lock()
@@ -57,10 +54,7 @@ pub fn adb_start_frida_server(
 
 /// Stops frida-server on the device.
 #[tauri::command]
-pub fn adb_stop_frida_server(
-    state: State<'_, AppState>,
-    serial: String,
-) -> Result<(), AppError> {
+pub fn adb_stop_frida_server(state: State<'_, AppState>, serial: String) -> Result<(), AppError> {
     let svc = state
         .adb_service
         .lock()
@@ -70,10 +64,7 @@ pub fn adb_stop_frida_server(
 
 /// Returns whether frida-server is currently running on the device.
 #[tauri::command]
-pub fn adb_is_frida_running(
-    state: State<'_, AppState>,
-    serial: String,
-) -> Result<bool, AppError> {
+pub fn adb_is_frida_running(state: State<'_, AppState>, serial: String) -> Result<bool, AppError> {
     let svc = state
         .adb_service
         .lock()
@@ -115,11 +106,7 @@ pub fn adb_install_apk(
 
 /// Pairs with a device over Wi-Fi using a pairing code (Android 11+).
 #[tauri::command]
-pub fn adb_pair(
-    state: State<'_, AppState>,
-    address: String,
-    code: String,
-) -> Result<(), AppError> {
+pub fn adb_pair(state: State<'_, AppState>, address: String, code: String) -> Result<(), AppError> {
     let svc = state
         .adb_service
         .lock()
@@ -129,10 +116,7 @@ pub fn adb_pair(
 
 /// Connects to a remote device over TCP/IP.
 #[tauri::command]
-pub fn adb_connect(
-    state: State<'_, AppState>,
-    address: String,
-) -> Result<(), AppError> {
+pub fn adb_connect(state: State<'_, AppState>, address: String) -> Result<(), AppError> {
     let svc = state
         .adb_service
         .lock()

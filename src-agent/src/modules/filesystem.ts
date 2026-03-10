@@ -1,4 +1,5 @@
 import { registerHandler } from "../rpc/router";
+import { findExportByName } from "../runtime/frida-compat";
 
 function hexEncode(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
@@ -20,13 +21,29 @@ registerHandler("listDirectory", (params: unknown) => {
 
   try {
     // Frida's SqliteDatabase approach won't work for dirs; use opendir via NativeFunction
-    const libc = Process.platform === "darwin" ? "libSystem.B.dylib" : "libc.so.6";
+    const libcCandidates =
+      Process.platform === "darwin"
+        ? ["libSystem.B.dylib"]
+        : ["libc.so", "libc.so.6"];
 
-    const opendirAddr = Module.findExportByName(libc, "opendir");
-    const readdirAddr = Module.findExportByName(libc, "readdir");
-    const closedirAddr = Module.findExportByName(libc, "closedir");
+    const resolveDirExport = (name: string): NativePointer | null => {
+      for (const candidate of libcCandidates) {
+        const resolved = findExportByName(candidate, name);
+        if (resolved) {
+          return resolved;
+        }
+      }
+
+      return findExportByName(null, name);
+    };
+
+    const opendirAddr = resolveDirExport("opendir");
+    const readdirAddr = resolveDirExport("readdir");
+    const closedirAddr = resolveDirExport("closedir");
     if (!opendirAddr || !readdirAddr || !closedirAddr) {
-      throw new Error(`Failed to resolve directory functions from ${libc}`);
+      throw new Error(
+        `Failed to resolve directory functions from ${libcCandidates.join(", ")}`
+      );
     }
 
     const opendir = new NativeFunction(opendirAddr, "pointer", ["pointer"]);
@@ -43,6 +60,17 @@ registerHandler("listDirectory", (params: unknown) => {
     const isMac = Process.platform === "darwin";
     const nameOffset = isMac ? 21 : 19;
 
+    function resolveEntryType(entryPath: string, fallbackType: string): string {
+      const entryPathMem = Memory.allocUtf8String(entryPath);
+      const childDir = opendir(entryPathMem) as NativePointer;
+      if (!childDir.isNull()) {
+        closedir(childDir);
+        return "directory";
+      }
+
+      return fallbackType;
+    }
+
     while (true) {
       const dirent = readdir(dir) as NativePointer;
       if (dirent.isNull()) break;
@@ -50,15 +78,17 @@ registerHandler("listDirectory", (params: unknown) => {
       const name = dirent.add(nameOffset).readUtf8String();
       if (!name || name === "." || name === "..") continue;
 
+      const entryPath = path.endsWith("/") ? `${path}${name}` : `${path}/${name}`;
       const typeOffset = isMac ? 20 : 18;
       const dtype = dirent.add(typeOffset).readU8();
 
       // DT_DIR = 4, DT_REG = 8, DT_LNK = 10
       const typeMap: Record<number, string> = { 4: "directory", 8: "file", 10: "symlink" };
+      const fallbackType = typeMap[dtype] ?? "file";
       entries.push({
         name,
-        path: path.endsWith("/") ? `${path}${name}` : `${path}/${name}`,
-        type: typeMap[dtype] ?? "file",
+        path: entryPath,
+        type: resolveEntryType(entryPath, fallbackType),
         size: 0,
         permissions: "",
         modified: null,
@@ -113,8 +143,12 @@ registerHandler("sqliteQuery", (params: unknown) => {
     const columns = stmt.columnNames;
     const rows: unknown[][] = [];
 
-    while (stmt.step()) {
-      rows.push(columns.map((col) => stmt.get(columns.indexOf(col))));
+    while (true) {
+      const row = stmt.step();
+      if (row === null) {
+        break;
+      }
+      rows.push(row);
     }
 
     stmt.reset();
@@ -134,11 +168,15 @@ registerHandler("sqliteTables", (params: unknown) => {
     );
     const tables: { name: string; type: string; sql: string | null }[] = [];
 
-    while (stmt.step()) {
+    while (true) {
+      const row = stmt.step();
+      if (row === null) {
+        break;
+      }
       tables.push({
-        name: stmt.get(0) as string,
-        type: stmt.get(1) as string,
-        sql: stmt.get(2) as string | null,
+        name: row[0] as string,
+        type: row[1] as string,
+        sql: (row[2] as string | null) ?? null,
       });
     }
 
