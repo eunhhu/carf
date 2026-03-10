@@ -1,6 +1,6 @@
 import { createStore } from "solid-js/store";
 import { createMemo } from "solid-js";
-import type { ProcessInfo, AppInfo, SessionInfo } from "~/lib/types";
+import type { ProcessInfo, AppInfo, SessionInfo, AttachOptions, SpawnOptions } from "~/lib/types";
 import { invoke } from "~/lib/tauri";
 import { addSession, setAppView } from "~/features/session/session.store";
 
@@ -104,12 +104,21 @@ async function killProcess(deviceId: string, pid: number): Promise<void> {
 async function attachToProcess(
   deviceId: string,
   target: SelectedTarget,
+  options?: Partial<AttachOptions>,
 ): Promise<void> {
   setState({ loading: true, error: null });
   try {
+    const attachOptions: AttachOptions = {
+      target: target.pid ?? target.identifier ?? 0,
+      realm: options?.realm,
+      runtime: options?.runtime,
+      persistTimeout: options?.persistTimeout,
+      enableChildGating: options?.enableChildGating,
+      scriptPath: options?.scriptPath,
+    };
     const session = await invoke<SessionInfo>("attach", {
       deviceId,
-      options: { target: target.pid ?? target.identifier },
+      options: attachOptions,
     });
     setState({ loading: false });
     addSession(session);
@@ -125,12 +134,26 @@ async function attachToProcess(
 async function spawnAndAttach(
   deviceId: string,
   identifier: string,
+  options?: Partial<SpawnOptions>,
 ): Promise<void> {
   setState({ loading: true, error: null });
   try {
+    const spawnOptions: SpawnOptions = {
+      identifier,
+      argv: options?.argv,
+      envp: options?.envp,
+      cwd: options?.cwd,
+      stdio: options?.stdio,
+      autoResume: options?.autoResume,
+      realm: options?.realm,
+      persistTimeout: options?.persistTimeout,
+      runtime: options?.runtime,
+      enableChildGating: options?.enableChildGating,
+      scriptPath: options?.scriptPath,
+    };
     const session = await invoke<SessionInfo>("spawn_and_attach", {
       deviceId,
-      options: { identifier },
+      options: spawnOptions,
     });
     setState({ loading: false });
     addSession(session);
