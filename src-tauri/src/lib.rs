@@ -1,13 +1,14 @@
+mod api;
 mod commands;
 mod error;
 mod services;
 mod state;
+mod web_bridge;
 
 use commands::{
     adb::{
         adb_connect, adb_device_props, adb_devices, adb_install_apk, adb_is_frida_running,
-        adb_pair, adb_push_frida_server, adb_shell, adb_start_frida_server,
-        adb_stop_frida_server,
+        adb_pair, adb_push_frida_server, adb_shell, adb_start_frida_server, adb_stop_frida_server,
     },
     agent::rpc_call,
     device::{add_remote_device, get_device_info, list_devices, remove_remote_device},
@@ -25,6 +26,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .manage(AppState::new())
         .setup(|app| {
+            setup_event_forwarder(app);
             setup_device_change_listener(app);
             Ok(())
         })
@@ -62,6 +64,28 @@ pub fn run() {
         .expect("error while running CARF application");
 }
 
+pub async fn run_web_bridge() -> anyhow::Result<()> {
+    web_bridge::run().await
+}
+
+fn setup_event_forwarder(app: &tauri::App) {
+    let app_handle = app.handle().clone();
+    let state = app.state::<AppState>();
+    let mut receiver = state.events.subscribe();
+
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match receiver.recv().await {
+                Ok(event) => {
+                    let _ = app_handle.emit(&event.name, event.payload);
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
 /// Sets up a background task that polls Frida for device changes and emits
 /// `carf://device/added` and `carf://device/removed` events to the frontend.
 ///
@@ -96,6 +120,10 @@ fn setup_device_change_listener(app: &tauri::App) {
                         for device in &current_devices {
                             if !known.contains(&device.id) {
                                 let _ = app_handle.emit("carf://device/added", device);
+                                state.events.emit(
+                                    "carf://device/added",
+                                    serde_json::to_value(device).unwrap_or_default(),
+                                );
                                 log::info!("Device added: {} ({})", device.name, device.id);
                             }
                         }
@@ -103,10 +131,11 @@ fn setup_device_change_listener(app: &tauri::App) {
                         // Emit removed events for disappeared devices
                         for id in known.iter() {
                             if !current_ids.contains(id) {
-                                let _ = app_handle.emit(
-                                    "carf://device/removed",
-                                    serde_json::json!({ "id": id }),
-                                );
+                                let _ = app_handle
+                                    .emit("carf://device/removed", serde_json::json!({ "id": id }));
+                                state
+                                    .events
+                                    .emit("carf://device/removed", serde_json::json!({ "id": id }));
                                 log::info!("Device removed: {id}");
                             }
                         }

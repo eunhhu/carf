@@ -1,9 +1,11 @@
 import { registerHandler } from "../rpc/router";
 
 registerHandler("getModuleExports", (params: unknown) => {
-  const { name } = params as { name: string };
-  const mod = Process.findModuleByName(name);
-  if (!mod) throw new Error(`Module not found: ${name}`);
+  const { name, moduleName } = params as { name?: string; moduleName?: string };
+  const resolvedName = moduleName ?? name;
+  if (!resolvedName) throw new Error("Module name is required");
+  const mod = Process.findModuleByName(resolvedName);
+  if (!mod) throw new Error(`Module not found: ${resolvedName}`);
   return mod.enumerateExports().map((exp) => ({
     type: exp.type,
     name: exp.name,
@@ -12,9 +14,11 @@ registerHandler("getModuleExports", (params: unknown) => {
 });
 
 registerHandler("getModuleImports", (params: unknown) => {
-  const { name } = params as { name: string };
-  const mod = Process.findModuleByName(name);
-  if (!mod) throw new Error(`Module not found: ${name}`);
+  const { name, moduleName } = params as { name?: string; moduleName?: string };
+  const resolvedName = moduleName ?? name;
+  if (!resolvedName) throw new Error("Module name is required");
+  const mod = Process.findModuleByName(resolvedName);
+  if (!mod) throw new Error(`Module not found: ${resolvedName}`);
   return mod.enumerateImports().map((imp) => ({
     type: imp.type,
     name: imp.name,
@@ -24,9 +28,11 @@ registerHandler("getModuleImports", (params: unknown) => {
 });
 
 registerHandler("getModuleSymbols", (params: unknown) => {
-  const { name } = params as { name: string };
-  const mod = Process.findModuleByName(name);
-  if (!mod) throw new Error(`Module not found: ${name}`);
+  const { name, moduleName } = params as { name?: string; moduleName?: string };
+  const resolvedName = moduleName ?? name;
+  if (!resolvedName) throw new Error("Module name is required");
+  const mod = Process.findModuleByName(resolvedName);
+  if (!mod) throw new Error(`Module not found: ${resolvedName}`);
   return mod.enumerateSymbols().map((sym) => ({
     isGlobal: sym.isGlobal,
     type: sym.type,

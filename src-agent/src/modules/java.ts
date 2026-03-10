@@ -1,9 +1,28 @@
 import { registerHandler } from "../rpc/router";
 import { emitHookEvent } from "../rpc/protocol";
 
-// Track active Java hooks: hookId -> { className, methodName, implementation }
-const javaHooks = new Map<string, { className: string; methodName: string }>();
+interface JavaHookEntry {
+  hookId: string;
+  className: string;
+  methodName: string;
+  overloadIndex: number;
+  active: boolean;
+  hits: number;
+}
+
+const javaHooks = new Map<string, JavaHookEntry>();
 let hookCounter = 0;
+
+function toHookInfo(hook: JavaHookEntry) {
+  return {
+    id: hook.hookId,
+    target: `${hook.className}.${hook.methodName}`,
+    address: null,
+    type: "java",
+    active: hook.active,
+    hits: hook.hits,
+  };
+}
 
 registerHandler("isJavaAvailable", (_params: unknown) => {
   return Java.available;
@@ -40,18 +59,31 @@ registerHandler("getJavaMethods", (params: unknown) => {
       try {
         const cls = Java.use(className);
         const methods: unknown[] = [];
-
-        // getDeclaredMethods returns Java Method objects
         const declared = cls.class.getDeclaredMethods();
+        const overloadCounts = new Map<string, number>();
+        const hookedMethods = new Set(
+          Array.from(javaHooks.values())
+            .filter((hook) => hook.className === className)
+            .map((hook) => hook.methodName),
+        );
+
         for (let i = 0; i < declared.length; i++) {
           const m = declared[i];
+          const name = m.getName();
+          overloadCounts.set(name, (overloadCounts.get(name) ?? 0) + 1);
+        }
+
+        for (let i = 0; i < declared.length; i++) {
+          const m = declared[i];
+          const name = m.getName();
           methods.push({
-            name: m.getName(),
+            name,
             returnType: m.getReturnType().getName(),
-            parameterTypes: Array.from(
+            argumentTypes: Array.from(
               m.getParameterTypes() as unknown as { getName(): string }[]
             ).map((t) => t.getName()),
-            modifiers: m.getModifiers(),
+            isOverloaded: (overloadCounts.get(name) ?? 0) > 1,
+            hooked: hookedMethods.has(name),
           });
         }
 
@@ -113,38 +145,60 @@ registerHandler("hookJavaMethod", (params: unknown) => {
         }
 
         const overloads = methodGroup.overloads;
-        const targetOverload =
-          overloadIndex !== undefined ? overloads[overloadIndex] : overloads[0];
+        const selectedOverloadIndex = overloadIndex ?? 0;
+        const targetOverload = overloads[selectedOverloadIndex];
 
         if (!targetOverload) {
           throw new Error(
-            `Overload index ${overloadIndex ?? 0} not found for ${className}.${methodName}`
+            `Overload index ${selectedOverloadIndex} not found for ${className}.${methodName}`
           );
         }
 
         targetOverload.implementation = function (this: unknown, ...args: unknown[]) {
-          emitHookEvent(hookId, "enter", {
-            className,
-            methodName,
-            args: args.map(String),
-            threadId: Process.getCurrentThreadId(),
-          });
+          const hook = javaHooks.get(hookId);
+
+          if (hook?.active) {
+            hook.hits += 1;
+            emitHookEvent(hookId, "enter", {
+              className,
+              methodName,
+              target: `${className}.${methodName}`,
+              args: args.map(String),
+              threadId: Process.getCurrentThreadId(),
+              address: null,
+              backtrace: [],
+            });
+          }
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const retval = (targetOverload as any).call(this, ...args);
 
-          emitHookEvent(hookId, "leave", {
-            className,
-            methodName,
-            retval: String(retval),
-            threadId: Process.getCurrentThreadId(),
-          });
+          if (hook?.active) {
+            emitHookEvent(hookId, "leave", {
+              className,
+              methodName,
+              target: `${className}.${methodName}`,
+              retval: String(retval),
+              threadId: Process.getCurrentThreadId(),
+              address: null,
+              backtrace: [],
+            });
+          }
 
           return retval;
         };
 
-        javaHooks.set(hookId, { className, methodName });
-        resolve({ hookId, className, methodName });
+        const hookEntry: JavaHookEntry = {
+          hookId,
+          className,
+          methodName,
+          overloadIndex: selectedOverloadIndex,
+          active: true,
+          hits: 0,
+        };
+
+        javaHooks.set(hookId, hookEntry);
+        resolve(toHookInfo(hookEntry));
       } catch (e) {
         reject(e);
       }
@@ -164,10 +218,8 @@ registerHandler("unhookJavaMethod", (params: unknown) => {
       try {
         const cls = Java.use(hook.className);
         const methodGroup = cls[hook.methodName];
-        if (methodGroup && methodGroup.overloads) {
-          for (const overload of methodGroup.overloads) {
-            overload.implementation = null;
-          }
+        if (methodGroup?.overloads?.[hook.overloadIndex]) {
+          methodGroup.overloads[hook.overloadIndex].implementation = null;
         }
         javaHooks.delete(hookId);
         resolve({ hookId, removed: true });
@@ -211,9 +263,16 @@ registerHandler("chooseJavaInstances", (params: unknown) => {
 });
 
 registerHandler("listJavaHooks", (_params: unknown) => {
-  const result: { hookId: string; className: string; methodName: string }[] = [];
-  for (const [hookId, info] of javaHooks) {
-    result.push({ hookId, ...info });
+  return Array.from(javaHooks.values()).map(toHookInfo);
+});
+
+registerHandler("setJavaHookActive", (params: unknown) => {
+  const { hookId, active } = params as { hookId: string; active: boolean };
+  const hook = javaHooks.get(hookId);
+  if (!hook) {
+    throw new Error(`Hook not found: ${hookId}`);
   }
-  return result;
+
+  hook.active = active;
+  return toHookInfo(hook);
 });

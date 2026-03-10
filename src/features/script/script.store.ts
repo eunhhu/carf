@@ -1,34 +1,33 @@
-import { createStore } from "solid-js/store";
 import { createSignal } from "solid-js";
+import { createStore } from "solid-js/store";
 import { invoke } from "~/lib/tauri";
-import { readTextFile } from "@tauri-apps/plugin-fs";
 
 interface ScriptTemplate {
-  name: string;
-  description: string;
-  code: string;
+	name: string;
+	description: string;
+	code: string;
 }
 
 interface ScriptState {
-  code: string;
-  loaded: boolean;
-  loading: boolean;
-  error: string | null;
-  scriptPath: string | null;
-  templates: ScriptTemplate[];
+	code: string;
+	loaded: boolean;
+	loading: boolean;
+	error: string | null;
+	scriptPath: string | null;
+	templates: ScriptTemplate[];
 }
 
 const [state, setState] = createStore<ScriptState>({
-  code: "",
-  loaded: false,
-  loading: false,
-  error: null,
-  scriptPath: null,
-  templates: [
-    {
-      name: "SSL Pinning Bypass",
-      description: "Bypass SSL certificate pinning",
-      code: `// SSL Pinning Bypass
+	code: "",
+	loaded: false,
+	loading: false,
+	error: null,
+	scriptPath: null,
+	templates: [
+		{
+			name: "SSL Pinning Bypass",
+			description: "Bypass SSL certificate pinning",
+			code: `// SSL Pinning Bypass
 Java.perform(function() {
   var TrustManager = Java.registerClass({
     name: "carf.TrustManager",
@@ -45,11 +44,11 @@ Java.perform(function() {
   SSLContext.setDefault(ctx);
   send({ type: "log", data: "SSL Pinning bypassed" });
 });`,
-    },
-    {
-      name: "Root Detection Bypass",
-      description: "Bypass common root detection checks",
-      code: `// Root Detection Bypass
+		},
+		{
+			name: "Root Detection Bypass",
+			description: "Bypass common root detection checks",
+			code: `// Root Detection Bypass
 Java.perform(function() {
   var RootBeer = Java.use("com.scottyab.rootbeer.RootBeer");
   RootBeer.isRooted.implementation = function() {
@@ -57,11 +56,11 @@ Java.perform(function() {
     return false;
   };
 });`,
-    },
-    {
-      name: "Method Trace",
-      description: "Trace all method calls in a class",
-      code: `// Method Trace
+		},
+		{
+			name: "Method Trace",
+			description: "Trace all method calls in a class",
+			code: `// Method Trace
 var className = "com.example.TargetClass";
 Java.perform(function() {
   var clazz = Java.use(className);
@@ -78,101 +77,89 @@ Java.perform(function() {
     } catch(e) {}
   });
 });`,
-    },
-  ],
+		},
+	],
 });
 
 const [editorDirty, setEditorDirty] = createSignal(false);
 
 function setCode(code: string): void {
-  setState("code", code);
-  setEditorDirty(true);
+	setState("code", code);
+	setEditorDirty(true);
 }
 
 function setLoaded(loaded: boolean): void {
-  setState({ loaded, loading: false, error: null });
-  setEditorDirty(false);
+	setState({ loaded, loading: false, error: null });
+	setEditorDirty(false);
 }
 
 function setLoading(loading: boolean): void {
-  setState("loading", loading);
+	setState("loading", loading);
 }
 
 function setError(error: string | null): void {
-  setState({ error, loading: false });
+	setState({ error, loading: false });
 }
 
 function setScriptPath(path: string | null): void {
-  setState("scriptPath", path);
+	setState("scriptPath", path);
 }
 
 function loadTemplate(index: number): void {
-  const template = state.templates[index];
-  if (template) {
-    setState("code", template.code);
-    setEditorDirty(true);
-  }
+	const template = state.templates[index];
+	if (template) {
+		setState("code", template.code);
+		setEditorDirty(true);
+	}
 }
 
 // ─── RPC Functions ───
 
 async function loadScript(sessionId: string, code: string): Promise<void> {
-  setLoading(true);
-  try {
-    await invoke("rpc_call", {
-      sessionId,
-      method: "loadScript",
-      params: { code },
-    });
-    setLoaded(true);
-  } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
-    setError(error);
-    throw e;
-  }
+	setLoading(true);
+	try {
+		await invoke("rpc_call", {
+			sessionId,
+			method: "loadScript",
+			params: { code },
+		});
+		setLoaded(true);
+	} catch (e) {
+		const error = e instanceof Error ? e.message : String(e);
+		setError(error);
+		throw e;
+	}
 }
 
 async function unloadScript(sessionId: string): Promise<void> {
-  try {
-    await invoke("rpc_call", {
-      sessionId,
-      method: "unloadScript",
-      params: {},
-    });
-    setLoaded(false);
-  } catch (e) {
-    console.error("unloadScript failed:", e);
-    throw e;
-  }
+	try {
+		await invoke("rpc_call", {
+			sessionId,
+			method: "unloadScript",
+			params: {},
+		});
+		setLoaded(false);
+	} catch (e) {
+		console.error("unloadScript failed:", e);
+		throw e;
+	}
 }
 
 async function reloadScript(sessionId: string): Promise<void> {
-  await unloadScript(sessionId);
-  await loadScript(sessionId, state.code);
-}
-
-async function loadScriptFromFile(path: string): Promise<void> {
-  try {
-    const content = await readTextFile(path);
-    setCode(content);
-    setScriptPath(path);
-  } catch (e) {
-    console.error("loadScriptFromFile failed:", e);
-    throw e;
-  }
+	await unloadScript(sessionId);
+	await loadScript(sessionId, state.code);
 }
 
 export {
-  state as scriptState,
-  editorDirty,
-  setCode,
-  setLoaded,
-  setLoading as setScriptLoading,
-  setError as setScriptError,
-  setScriptPath,
-  loadTemplate,
-  loadScript,
-  unloadScript,
-  reloadScript,
-  loadScriptFromFile,
+	state as scriptState,
+	editorDirty,
+	setCode,
+	setLoaded,
+	setLoading as setScriptLoading,
+	setError as setScriptError,
+	setScriptPath,
+	loadTemplate,
+	loadScript,
+	unloadScript,
+	reloadScript,
 };

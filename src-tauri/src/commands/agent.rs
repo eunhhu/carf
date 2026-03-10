@@ -1,5 +1,6 @@
 use tauri::State;
 
+use crate::api;
 use crate::error::AppError;
 use crate::state::AppState;
 
@@ -14,9 +15,5 @@ pub fn rpc_call(
     method: String,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, AppError> {
-    let svc = state
-        .frida_service
-        .lock()
-        .map_err(|_| AppError::Internal("frida_service lock poisoned".to_string()))?;
-    svc.rpc_call(&session_id, &method, params)
+    api::rpc_call(&state, session_id, method, params)
 }

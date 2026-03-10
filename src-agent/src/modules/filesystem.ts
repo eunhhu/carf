@@ -55,7 +55,14 @@ registerHandler("listDirectory", (params: unknown) => {
 
       // DT_DIR = 4, DT_REG = 8, DT_LNK = 10
       const typeMap: Record<number, string> = { 4: "directory", 8: "file", 10: "symlink" };
-      entries.push({ name, type: typeMap[dtype] ?? "unknown" });
+      entries.push({
+        name,
+        path: path.endsWith("/") ? `${path}${name}` : `${path}/${name}`,
+        type: typeMap[dtype] ?? "file",
+        size: 0,
+        permissions: "",
+        modified: null,
+      });
     }
 
     closedir(dir);
@@ -63,7 +70,7 @@ registerHandler("listDirectory", (params: unknown) => {
     throw new Error(`listDirectory failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  return { path, entries };
+  return entries;
 });
 
 registerHandler("readFile", (params: unknown) => {
@@ -83,24 +90,18 @@ registerHandler("readFile", (params: unknown) => {
   const data = file.readBytes(chunkSize);
   file.close();
 
-  if (!data) return { path, offset, size: 0, data: "" };
+  if (!data) return "";
 
   if (encoding === "utf8") {
     try {
       const decoder = new TextDecoder("utf-8", { fatal: false });
-      return { path, offset, size: (data as ArrayBuffer).byteLength, data: decoder.decode(data as ArrayBuffer), encoding: "utf8" };
+      return decoder.decode(data as ArrayBuffer);
     } catch {
       // Fall through to hex
     }
   }
 
-  return {
-    path,
-    offset,
-    size: (data as ArrayBuffer).byteLength,
-    data: hexEncode(data as ArrayBuffer),
-    encoding: "hex",
-  };
+  return hexEncode(data as ArrayBuffer);
 });
 
 registerHandler("sqliteQuery", (params: unknown) => {
@@ -142,7 +143,7 @@ registerHandler("sqliteTables", (params: unknown) => {
     }
 
     stmt.reset();
-    return { path, tables };
+    return tables.map((table) => table.name);
   } finally {
     db.close();
   }

@@ -3,8 +3,8 @@ import { registerHandler } from "../rpc/router";
 registerHandler("enumerateThreads", (_params: unknown) => {
   return Process.enumerateThreads().map((thread) => ({
     id: thread.id,
+    name: null,
     state: thread.state,
-    context: thread.context,
   }));
 });
 
@@ -21,7 +21,7 @@ registerHandler("getBacktrace", (params: unknown) => {
     const mod = Process.findModuleByAddress(addr);
     return {
       address: addr.toString(),
-      name: sym.name,
+      symbolName: sym.name ?? null,
       moduleName: sym.moduleName,
       fileName: sym.fileName,
       lineNumber: sym.lineNumber,

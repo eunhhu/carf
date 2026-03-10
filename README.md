@@ -68,9 +68,26 @@ bun install
 # Full desktop app (Frontend + Rust backend)
 bun run tauri dev
 
-# Frontend only (browser mode, limited functionality)
+# Web frontend only (falls back to mock runtime if no bridge is running)
+bun run dev
+
+# Axum bridge for running the app in a regular browser
+bun run bridge:dev
+```
+
+### Web Mode With Axum Bridge
+
+Run the frontend and bridge in separate terminals:
+
+```bash
+# Terminal 1
+bun run bridge:dev
+
+# Terminal 2
 bun run dev
 ```
+
+By default the browser frontend connects to `http://127.0.0.1:7766`. To use a different bridge URL, set `VITE_CARF_BRIDGE_URL`.
 
 ### Build for Production
 
@@ -147,8 +164,11 @@ bun install
 # Start development (full Tauri app)
 bun run tauri dev
 
-# Start development (browser only)
+# Start development (browser only, mock/runtime fallback enabled)
 bun run dev
+
+# Start Axum bridge for browser mode
+bun run bridge:dev
 
 # Compile Frida agent script
 bun run compile:agent

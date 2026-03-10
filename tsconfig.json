@@ -17,6 +17,7 @@
     "forceConsistentCasingInFileNames": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
+    "types": ["vite/client"],
     "paths": {
       "~/*": ["./src/*"]
     }

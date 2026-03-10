@@ -9,10 +9,23 @@ interface HookEntry {
   captureArgs: boolean;
   captureRetval: boolean;
   captureBacktrace: boolean;
+  active: boolean;
+  hits: number;
 }
 
 const hooks = new Map<string, HookEntry>();
 let hookCounter = 0;
+
+function toHookInfo(hook: HookEntry) {
+  return {
+    id: hook.hookId,
+    target: hook.target,
+    address: hook.address,
+    type: "native",
+    active: hook.active,
+    hits: hook.hits,
+  };
+}
 
 function resolveTarget(target: string): NativePointer {
   // If it starts with 0x or is a pure hex string, treat as address
@@ -54,6 +67,13 @@ registerHandler("hookFunction", (params: unknown) => {
 
   const listener = Interceptor.attach(addr, {
     onEnter(args) {
+      const hook = hooks.get(hookId);
+      if (!hook || !hook.active) {
+        return;
+      }
+
+      hook.hits += 1;
+
       const details: Record<string, unknown> = {
         target,
         address: addr.toString(),
@@ -85,6 +105,11 @@ registerHandler("hookFunction", (params: unknown) => {
       emitHookEvent(hookId, "enter", details);
     },
     onLeave(retval) {
+      const hook = hooks.get(hookId);
+      if (!hook || !hook.active) {
+        return;
+      }
+
       const details: Record<string, unknown> = {
         target,
         address: addr.toString(),
@@ -107,9 +132,11 @@ registerHandler("hookFunction", (params: unknown) => {
     captureArgs,
     captureRetval,
     captureBacktrace,
+    active: true,
+    hits: 0,
   });
 
-  return { hookId, target, address: addr.toString() };
+  return toHookInfo(hooks.get(hookId)!);
 });
 
 registerHandler("unhookFunction", (params: unknown) => {
@@ -131,27 +158,18 @@ registerHandler("callFunction", (params: unknown) => {
 
   const fn = new NativeFunction(ptr(address), retType as NativeType, argTypes as NativeType[]);
   const result = fn(...args);
-  return { result: String(result) };
+  return String(result);
+});
+
+registerHandler("setNativeHookActive", (params: unknown) => {
+  const { hookId, active } = params as { hookId: string; active: boolean };
+  const hook = hooks.get(hookId);
+  if (!hook) throw new Error(`Hook not found: ${hookId}`);
+
+  hook.active = active;
+  return toHookInfo(hook);
 });
 
 registerHandler("listHooks", (_params: unknown) => {
-  const result: {
-    hookId: string;
-    target: string;
-    address: string;
-    captureArgs: boolean;
-    captureRetval: boolean;
-    captureBacktrace: boolean;
-  }[] = [];
-  for (const hook of hooks.values()) {
-    result.push({
-      hookId: hook.hookId,
-      target: hook.target,
-      address: hook.address,
-      captureArgs: hook.captureArgs,
-      captureRetval: hook.captureRetval,
-      captureBacktrace: hook.captureBacktrace,
-    });
-  }
-  return result;
+  return Array.from(hooks.values()).map(toHookInfo);
 });

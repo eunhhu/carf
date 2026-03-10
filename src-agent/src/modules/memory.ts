@@ -29,27 +29,52 @@ registerHandler("readMemory", (params: unknown) => {
 });
 
 registerHandler("writeMemory", (params: unknown) => {
-  const { address, bytes } = params as { address: string; bytes: string };
-  const data = hexDecode(bytes);
-  Memory.writeByteArray(ptr(address), data as unknown as number[]);
-  return { written: data.length };
+  const {
+    address,
+    bytes,
+    data,
+  } = params as { address: string; bytes?: string; data?: string };
+  const encoded = data ?? bytes;
+  if (!encoded) {
+    throw new Error("Memory write payload is required");
+  }
+  const decoded = hexDecode(encoded);
+  Memory.writeByteArray(ptr(address), decoded as unknown as number[]);
+  return { written: decoded.length };
 });
 
 registerHandler("scanMemory", (params: unknown) => {
-  const { address, size, pattern } = params as {
-    address: string;
-    size: number;
+  const { address, size, pattern, protection = "r--" } = params as {
+    address?: string;
+    size?: number;
     pattern: string;
+    protection?: string;
   };
 
   const results: { address: string; size: number }[] = [];
 
-  Memory.scanSync(ptr(address), size, pattern).forEach((match) => {
-    results.push({
-      address: match.address.toString(),
-      size: match.size,
+  if (address && typeof size === "number") {
+    Memory.scanSync(ptr(address), size, pattern).forEach((match) => {
+      results.push({
+        address: match.address.toString(),
+        size: match.size,
+      });
     });
-  });
+    return results;
+  }
+
+  for (const range of Process.enumerateRanges(protection as PageProtection)) {
+    try {
+      Memory.scanSync(range.base, range.size, pattern).forEach((match) => {
+        results.push({
+          address: match.address.toString(),
+          size: match.size,
+        });
+      });
+    } catch {
+      // Ignore unreadable ranges and continue scanning the rest.
+    }
+  }
 
   return results;
 });

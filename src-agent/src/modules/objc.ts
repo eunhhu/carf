@@ -1,9 +1,29 @@
 import { registerHandler } from "../rpc/router";
 import { emitHookEvent } from "../rpc/protocol";
 
-// Track active ObjC hooks: hookId -> InvocationListener
-const objcHooks = new Map<string, InvocationListener>();
+interface ObjcHookEntry {
+  hookId: string;
+  className: string;
+  selector: string;
+  address: string;
+  listener: InvocationListener;
+  active: boolean;
+  hits: number;
+}
+
+const objcHooks = new Map<string, ObjcHookEntry>();
 let hookCounter = 0;
+
+function toHookInfo(hook: ObjcHookEntry) {
+  return {
+    id: hook.hookId,
+    target: `${hook.className} ${hook.selector}`,
+    address: hook.address,
+    type: "objc",
+    active: hook.active,
+    hits: hook.hits,
+  };
+}
 
 registerHandler("isObjcAvailable", (_params: unknown) => {
   return ObjC.available;
@@ -50,9 +70,18 @@ registerHandler("getObjcMethods", (params: unknown) => {
   }
 
   const cls = ObjC.classes[className];
+  const hookedSelectors = new Set(
+    Array.from(objcHooks.values())
+      .filter((hook) => hook.className === className)
+      .map((hook) => hook.selector),
+  );
+
   return cls.$methods.map((selector) => ({
     selector,
     type: selector.startsWith("+") ? "class" : "instance",
+    returnType: "unknown",
+    argumentTypes: [],
+    hooked: hookedSelectors.has(selector),
   }));
 });
 
@@ -83,32 +112,59 @@ registerHandler("hookObjcMethod", (params: unknown) => {
 
   const listener = Interceptor.attach(impl, {
     onEnter(args) {
+      const hook = objcHooks.get(hookId);
+      if (!hook || !hook.active) {
+        return;
+      }
+
+      hook.hits += 1;
       emitHookEvent(hookId, "enter", {
         className,
         selector,
+        target: `${className} ${selector}`,
+        address: impl.toString(),
         self: args[0].toString(),
         threadId: Process.getCurrentThreadId(),
+        backtrace: [],
       });
     },
     onLeave(retval) {
+      const hook = objcHooks.get(hookId);
+      if (!hook || !hook.active) {
+        return;
+      }
+
       emitHookEvent(hookId, "leave", {
         className,
         selector,
+        target: `${className} ${selector}`,
+        address: impl.toString(),
         retval: retval.toString(),
         threadId: Process.getCurrentThreadId(),
+        backtrace: [],
       });
     },
   });
 
-  objcHooks.set(hookId, listener);
-  return { hookId, className, selector };
+  const hookEntry: ObjcHookEntry = {
+    hookId,
+    className,
+    selector,
+    address: impl.toString(),
+    listener,
+    active: true,
+    hits: 0,
+  };
+
+  objcHooks.set(hookId, hookEntry);
+  return toHookInfo(hookEntry);
 });
 
 registerHandler("unhookObjcMethod", (params: unknown) => {
   const { hookId } = params as { hookId: string };
-  const listener = objcHooks.get(hookId);
-  if (!listener) throw new Error(`Hook not found: ${hookId}`);
-  listener.detach();
+  const hook = objcHooks.get(hookId);
+  if (!hook) throw new Error(`Hook not found: ${hookId}`);
+  hook.listener.detach();
   objcHooks.delete(hookId);
   return { hookId, removed: true };
 });
@@ -139,5 +195,16 @@ registerHandler("chooseObjcInstances", (params: unknown) => {
 });
 
 registerHandler("listObjcHooks", (_params: unknown) => {
-  return Array.from(objcHooks.keys()).map((hookId) => ({ hookId }));
+  return Array.from(objcHooks.values()).map(toHookInfo);
+});
+
+registerHandler("setObjcHookActive", (params: unknown) => {
+  const { hookId, active } = params as { hookId: string; active: boolean };
+  const hook = objcHooks.get(hookId);
+  if (!hook) {
+    throw new Error(`Hook not found: ${hookId}`);
+  }
+
+  hook.active = active;
+  return toHookInfo(hook);
 });
