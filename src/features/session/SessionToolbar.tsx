@@ -1,9 +1,14 @@
-import { Show } from "solid-js";
+import { Show, createSignal } from "solid-js";
+import { ArrowLeft } from "lucide-solid";
 import { activeSession, setAppView, removeSession, updateSessionStatus } from "./session.store";
 import { settingsState, toggleInspector, toggleConsole } from "~/features/settings/settings.store";
 import { invoke } from "~/lib/tauri";
 import { cn } from "~/lib/cn";
 import { formatDuration } from "~/lib/format";
+import { saveSessionState, restorePinboard, getSavedHookConfigs, exportSessionSnapshot, importSessionSnapshot } from "~/lib/session-persistence";
+import { exportReportJSON, exportReportHTML } from "~/lib/report-export";
+import { importHookConfigs } from "~/features/hooks/hooks.store";
+import { pickTextFile } from "~/lib/file-picker";
 
 export function SessionToolbar() {
   const session = activeSession;
@@ -61,7 +66,7 @@ export function SessionToolbar() {
           class="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
           onClick={() => setAppView("process")}
         >
-          <span class="text-sm">&larr;</span>
+          <ArrowLeft size={14} />
           Back
         </button>
 
@@ -143,6 +148,9 @@ export function SessionToolbar() {
           shortcut="Cmd+J"
         />
 
+        {/* Session menu */}
+        <SessionMenu />
+
         {/* Detach */}
         <button
           class="ml-2 rounded-md px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10"
@@ -152,6 +160,117 @@ export function SessionToolbar() {
         </button>
       </div>
     </div>
+  );
+}
+
+function SessionMenu() {
+  const [open, setOpen] = createSignal(false);
+
+  function handleSave() {
+    saveSessionState();
+    setOpen(false);
+  }
+
+  async function handleRestore() {
+    const session = activeSession();
+    if (!session) return;
+    const pinsRestored = restorePinboard();
+    const hookConfigs = getSavedHookConfigs();
+    if (hookConfigs.length > 0) {
+      await importHookConfigs(session.id, hookConfigs).catch(() => {});
+    }
+    setOpen(false);
+    void pinsRestored;
+  }
+
+  function handleExportSnapshot() {
+    const json = exportSessionSnapshot();
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "carf-session.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    setOpen(false);
+  }
+
+  async function handleImportSnapshot() {
+    const session = activeSession();
+    if (!session) return;
+    try {
+      const selected = await pickTextFile(".json,application/json");
+      if (!selected) return;
+      const result = importSessionSnapshot(selected.content);
+      if (result.hookConfigs.length > 0) {
+        await importHookConfigs(session.id, result.hookConfigs).catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
+    setOpen(false);
+  }
+
+  function handleReportJSON() {
+    exportReportJSON();
+    setOpen(false);
+  }
+
+  function handleReportHTML() {
+    exportReportHTML();
+    setOpen(false);
+  }
+
+  return (
+    <div class="relative">
+      <button
+        class="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+        onClick={() => setOpen(!open())}
+      >
+        Menu
+      </button>
+      <Show when={open()}>
+        <div
+          class="absolute right-0 top-full z-50 mt-1 w-48 rounded-md border bg-surface py-1 shadow-lg"
+        >
+          <MenuSection label="Session">
+            <MenuItem label="Save State" onClick={handleSave} />
+            <MenuItem label="Restore State" onClick={handleRestore} />
+            <MenuItem label="Export Snapshot" onClick={handleExportSnapshot} />
+            <MenuItem label="Import Snapshot" onClick={handleImportSnapshot} />
+          </MenuSection>
+          <div class="my-1 border-t" />
+          <MenuSection label="Report">
+            <MenuItem label="Export JSON" onClick={handleReportJSON} />
+            <MenuItem label="Export HTML" onClick={handleReportHTML} />
+          </MenuSection>
+        </div>
+        {/* Backdrop */}
+        <div class="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+      </Show>
+    </div>
+  );
+}
+
+function MenuSection(props: { label: string; children: any }) {
+  return (
+    <div>
+      <div class="px-3 py-1 text-[10px] font-medium uppercase text-muted-foreground">
+        {props.label}
+      </div>
+      {props.children}
+    </div>
+  );
+}
+
+function MenuItem(props: { label: string; onClick: () => void }) {
+  return (
+    <button
+      class="w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-surface-hover"
+      onClick={props.onClick}
+    >
+      {props.label}
+    </button>
   );
 }
 

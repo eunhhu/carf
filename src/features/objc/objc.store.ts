@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { addHook } from "~/features/hooks/hooks.store";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
 import type { HookInfo, ObjCMethodInfo } from "~/lib/types";
 
@@ -17,7 +18,7 @@ interface ObjCState {
 	appClassesOnly: boolean;
 }
 
-const [state, setState] = createStore<ObjCState>({
+const DEFAULT_STATE: ObjCState = {
 	classes: [],
 	classesLoading: false,
 	selectedClass: null,
@@ -26,6 +27,10 @@ const [state, setState] = createStore<ObjCState>({
 	detailLoading: false,
 	available: null,
 	appClassesOnly: true,
+};
+
+const [state, setState] = createStore<ObjCState>({
+	...DEFAULT_STATE,
 });
 
 const [searchQuery, setSearchQuery] = createSignal("");
@@ -73,6 +78,39 @@ function setClassesLoading(loading: boolean): void {
 
 function setDetailLoading(loading: boolean): void {
 	setState("detailLoading", loading);
+}
+
+function resetObjcState(): void {
+	setState(restoreStore(DEFAULT_STATE));
+	setSearchQuery("");
+	setSubTab("methods");
+}
+
+function snapshotObjcState(): {
+	state: ObjCState;
+	searchQuery: string;
+	subTab: ObjCSubTab;
+} {
+	return {
+		state: snapshotStore(state),
+		searchQuery: searchQuery(),
+		subTab: subTab(),
+	};
+}
+
+function restoreObjcState(snapshot?: {
+	state: ObjCState;
+	searchQuery: string;
+	subTab: ObjCSubTab;
+}): void {
+	if (!snapshot) {
+		resetObjcState();
+		return;
+	}
+
+	setState(restoreStore(snapshot.state));
+	setSearchQuery(snapshot.searchQuery);
+	setSubTab(snapshot.subTab);
 }
 
 async function checkObjcAvailable(sessionId: string): Promise<void> {
@@ -184,4 +222,7 @@ export {
 	fetchObjcMethods,
 	fetchObjcInstances,
 	hookObjcMethod,
+	resetObjcState,
+	snapshotObjcState,
+	restoreObjcState,
 };

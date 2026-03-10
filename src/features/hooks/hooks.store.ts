@@ -1,5 +1,9 @@
 import { createStore } from "solid-js/store";
-import { normalizeHookEventPayload } from "~/lib/event-normalizers";
+import {
+	extractEventSessionId,
+	normalizeHookEventPayload,
+} from "~/lib/event-normalizers";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke, listen } from "~/lib/tauri";
 import type { HookConfig, HookEvent, HookInfo } from "~/lib/types";
 
@@ -8,9 +12,13 @@ interface HooksState {
 	recentEvents: Map<string, HookEvent[]>;
 }
 
-const [state, setState] = createStore<HooksState>({
+const DEFAULT_STATE: HooksState = {
 	hooks: [],
 	recentEvents: new Map(),
+};
+
+const [state, setState] = createStore<HooksState>({
+	...DEFAULT_STATE,
 });
 
 function setHooks(hooks: HookInfo[]): void {
@@ -30,6 +38,10 @@ function addHook(hook: HookInfo): void {
 
 function removeHook(hookId: string): void {
 	setState("hooks", (prev) => prev.filter((h) => h.id !== hookId));
+}
+
+function clearHooks(): void {
+	setState(restoreStore(DEFAULT_STATE));
 }
 
 function updateHookStatus(hookId: string, active: boolean): void {
@@ -287,10 +299,21 @@ async function importHookConfigs(
 	}
 }
 
-function setupHookEventListener(_sessionId: string): () => void {
+function setupHookEventListener(sessionId: string): () => void {
 	return listen<HookEvent>("carf://hook/event", (payload) => {
+		if (extractEventSessionId(payload) !== sessionId) {
+			return;
+		}
 		recordHookEvent(normalizeHookEventPayload(payload));
 	});
+}
+
+function snapshotHooksState(): HooksState {
+	return snapshotStore(state);
+}
+
+function restoreHooksState(snapshot?: HooksState): void {
+	setState(restoreStore(snapshot ?? DEFAULT_STATE));
 }
 
 export {
@@ -298,6 +321,7 @@ export {
 	setHooks,
 	addHook,
 	removeHook,
+	clearHooks,
 	updateHookStatus,
 	incrementHits,
 	addHookEvent,
@@ -311,4 +335,6 @@ export {
 	deleteHook,
 	importHookConfigs,
 	setupHookEventListener,
+	snapshotHooksState,
+	restoreHooksState,
 };

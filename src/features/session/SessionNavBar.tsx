@@ -1,27 +1,42 @@
-import { For } from "solid-js";
+import { For, type Component } from "solid-js";
+import {
+  Terminal,
+  Package,
+  Cpu,
+  MemoryStick,
+  Coffee,
+  Apple,
+  Binary,
+  FileCode2,
+  Anchor,
+  Pin,
+  GitFork,
+  Globe,
+  FolderOpen,
+} from "lucide-solid";
 import { cn } from "~/lib/cn";
 import type { TabId } from "~/lib/types";
 
 interface NavItem {
   id: TabId;
   label: string;
-  icon: string;
+  icon: Component<{ size?: number; class?: string }>;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "console", label: "Console", icon: ">" },
-  { id: "modules", label: "Modules", icon: "M" },
-  { id: "threads", label: "Threads", icon: "T" },
-  { id: "memory", label: "Memory", icon: "#" },
-  { id: "java", label: "Java", icon: "J" },
-  { id: "objc", label: "ObjC", icon: "O" },
-  { id: "native", label: "Native", icon: "N" },
-  { id: "script", label: "Script", icon: "S" },
-  { id: "hooks", label: "Hooks", icon: "H" },
-  { id: "pinboard", label: "Pinboard", icon: "P" },
-  { id: "callgraph", label: "Call Graph", icon: "G" },
-  { id: "network", label: "Network", icon: "W" },
-  { id: "files", label: "Files", icon: "F" },
+  { id: "console", label: "Console", icon: Terminal },
+  { id: "modules", label: "Modules", icon: Package },
+  { id: "threads", label: "Threads", icon: Cpu },
+  { id: "memory", label: "Memory", icon: MemoryStick },
+  { id: "java", label: "Java", icon: Coffee },
+  { id: "objc", label: "ObjC", icon: Apple },
+  { id: "native", label: "Native", icon: Binary },
+  { id: "script", label: "Script", icon: FileCode2 },
+  { id: "hooks", label: "Hooks", icon: Anchor },
+  { id: "pinboard", label: "Pinboard", icon: Pin },
+  { id: "callgraph", label: "Call Graph", icon: GitFork },
+  { id: "network", label: "Network", icon: Globe },
+  { id: "files", label: "Files", icon: FolderOpen },
 ];
 
 interface SessionNavBarProps {
@@ -35,11 +50,12 @@ export function SessionNavBar(props: SessionNavBarProps) {
       <For each={NAV_ITEMS}>
         {(item) => {
           const isActive = () => props.activeTab === item.id;
+          const Icon = item.icon;
 
           return (
             <button
               class={cn(
-                "relative flex h-10 w-10 items-center justify-center rounded-lg text-xs font-medium transition-colors",
+                "relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
                 isActive()
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
@@ -47,11 +63,10 @@ export function SessionNavBar(props: SessionNavBarProps) {
               onClick={() => props.onTabChange(item.id)}
               title={item.label}
             >
-              {/* Active indicator */}
               {isActive() && (
                 <span class="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r bg-primary" />
               )}
-              <span class="font-mono">{item.icon}</span>
+              <Icon size={18} />
             </button>
           );
         }}

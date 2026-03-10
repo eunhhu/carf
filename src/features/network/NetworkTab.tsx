@@ -15,6 +15,8 @@ import {
   exportHar,
 } from "./network.store";
 import { activeSession } from "~/features/session/session.store";
+import { SplitPane } from "~/components/SplitPane";
+import { CopyButton } from "~/components/CopyButton";
 import { cn } from "~/lib/cn";
 import { formatDuration } from "~/lib/format";
 
@@ -94,7 +96,7 @@ function NetworkTab() {
           </select>
           <button
             class={cn(
-              "rounded px-2 py-0.5 text-xs",
+              "cursor-pointer rounded px-2 py-0.5 text-xs",
               networkState.capturing
                 ? "bg-destructive/10 text-destructive"
                 : "bg-success/10 text-success",
@@ -104,13 +106,13 @@ function NetworkTab() {
             {networkState.capturing ? "Stop" : "Start"} Capture
           </button>
           <button
-            class="rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+            class="cursor-pointer rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
             onClick={clearRequests}
           >
             Clear
           </button>
           <button
-            class="rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+            class="cursor-pointer rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
             onClick={handleExportHar}
           >
             Export HAR
@@ -119,177 +121,188 @@ function NetworkTab() {
       </div>
 
       {/* Split: Request list + Detail */}
-      <div class="flex flex-1 overflow-hidden">
-        {/* Request list */}
-        <div class="w-1/2 overflow-auto border-r">
-          <div class="sticky top-0 flex gap-2 border-b bg-surface px-3 py-1 text-[10px] font-medium uppercase text-muted-foreground">
-            <span class="w-12">Status</span>
-            <span class="w-12">Method</span>
-            <span class="flex-1">URL</span>
-            <span class="w-14 text-right">Duration</span>
-          </div>
-
-          <For each={filteredRequests()}>
-            {(req) => {
-              const isSelected = () =>
-                networkState.selectedRequestId === req.id;
-              return (
-                <button
-                  class={cn(
-                    "flex w-full gap-2 px-3 py-1 text-left text-xs transition-colors hover:bg-surface-hover",
-                    isSelected() && "bg-muted",
-                  )}
-                  onClick={() => selectRequest(req.id)}
-                >
-                  <span
-                    class={cn("w-12 font-mono", getStatusColor(req.statusCode))}
-                  >
-                    {req.statusCode ?? "..."}
-                  </span>
-                  <span class="w-12 font-medium">{req.method}</span>
-                  <span class="flex-1 truncate font-mono text-muted-foreground">
-                    {req.url}
-                  </span>
-                  <span class="w-14 text-right text-muted-foreground">
-                    {req.duration != null ? formatDuration(req.duration) : ""}
-                  </span>
-                </button>
-              );
-            }}
-          </For>
-
-          <Show when={filteredRequests().length === 0}>
-            <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
-              {networkState.capturing
-                ? "Waiting for requests..."
-                : "Start capture to monitor network traffic"}
+      <SplitPane
+        id="network"
+        minLeft={250}
+        maxLeft={500}
+        defaultLeft={350}
+        left={
+          <div class="h-full overflow-auto">
+            <div class="sticky top-0 flex items-center border-b bg-surface px-3 py-1 text-[10px] font-medium uppercase text-muted-foreground">
+              <span class="w-12 shrink-0">Status</span>
+              <span class="w-12 shrink-0">Method</span>
+              <span class="min-w-0 flex-1">URL</span>
+              <span class="w-14 shrink-0 text-right">Duration</span>
             </div>
-          </Show>
-        </div>
 
-        {/* Request detail */}
-        <div class="w-1/2 overflow-auto">
-          <Show
-            when={selectedRequest()}
-            fallback={
-              <div class="flex h-full items-center justify-center text-xs text-muted-foreground">
-                Select a request to view details
-              </div>
-            }
-          >
-            {(req) => (
-              <div class="p-4">
-                <div class="mb-3 flex items-center gap-2">
-                  <span
+            <For each={filteredRequests()}>
+              {(req) => {
+                const isSelected = () =>
+                  networkState.selectedRequestId === req.id;
+                return (
+                  <button
                     class={cn(
-                      "font-mono font-bold",
-                      getStatusColor(req().statusCode),
+                      "group/row flex w-full cursor-pointer items-center px-3 py-1 text-left text-xs transition-colors hover:bg-surface-hover",
+                      isSelected() && "bg-muted",
                     )}
+                    onClick={() => selectRequest(req.id)}
                   >
-                    {req().statusCode}
-                  </span>
-                  <span class="font-medium">{req().method}</span>
-                  <span class="rounded bg-muted px-1 py-0.5 text-[10px]">
-                    {req().protocol}
-                  </span>
-                </div>
-                <div class="mb-3 break-all font-mono text-xs text-muted-foreground">
-                  {req().url}
-                </div>
-
-                {/* Sub-tabs */}
-                <div class="flex gap-2 border-b pb-2 text-xs">
-                  {(["request", "response", "timing"] as DetailTab[]).map((tab) => (
-                    <button
-                      class={cn(
-                        "rounded px-2 py-0.5",
-                        detailTab() === tab
-                          ? "bg-muted text-foreground"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                      onClick={() => setDetailTab(tab)}
+                    <span
+                      class={cn("w-12 shrink-0 font-mono", getStatusColor(req.statusCode))}
                     >
-                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                    </button>
-                  ))}
-                </div>
+                      {req.statusCode ?? "..."}
+                    </span>
+                    <span class="w-12 shrink-0 font-medium">{req.method}</span>
+                    <span class="min-w-0 flex-1 truncate font-mono text-muted-foreground" title={req.url}>
+                      {req.url}
+                    </span>
+                    <span class="w-14 shrink-0 text-right text-muted-foreground">
+                      {req.duration != null ? formatDuration(req.duration) : ""}
+                    </span>
+                  </button>
+                );
+              }}
+            </For>
 
-                {/* Request tab */}
-                <Show when={detailTab() === "request"}>
-                  <div class="mt-3">
-                    <h4 class="mb-1 text-xs font-medium text-muted-foreground">
-                      Request Headers
-                    </h4>
-                    <div class="space-y-0.5">
-                      {Object.entries(req().requestHeaders).map(([k, v]) => (
-                        <div class="flex gap-2 text-xs">
-                          <span class="shrink-0 text-primary">{k}:</span>
-                          <span class="break-all text-muted-foreground">{v}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <Show when={req().requestBody}>
-                    <div class="mt-3">
-                      <h4 class="mb-1 text-xs font-medium text-muted-foreground">
-                        Body
-                      </h4>
-                      <pre class="rounded bg-background p-2 font-mono text-xs">
-                        {req().requestBody}
-                      </pre>
-                    </div>
-                  </Show>
-                </Show>
-
-                {/* Response tab */}
-                <Show when={detailTab() === "response"}>
-                  <div class="mt-3">
-                    <h4 class="mb-1 text-xs font-medium text-muted-foreground">
-                      Response Headers
-                    </h4>
-                    <div class="space-y-0.5">
-                      {Object.entries(req().responseHeaders).map(([k, v]) => (
-                        <div class="flex gap-2 text-xs">
-                          <span class="shrink-0 text-primary">{k}:</span>
-                          <span class="break-all text-muted-foreground">{v}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <Show when={req().responseBody}>
-                    <div class="mt-3">
-                      <h4 class="mb-1 text-xs font-medium text-muted-foreground">
-                        Body
-                      </h4>
-                      <pre class="rounded bg-background p-2 font-mono text-xs">
-                        {req().responseBody}
-                      </pre>
-                    </div>
-                  </Show>
-                </Show>
-
-                {/* Timing tab */}
-                <Show when={detailTab() === "timing"}>
-                  <div class="mt-3 space-y-1">
-                    <div class="flex justify-between text-xs">
-                      <span class="text-muted-foreground">Duration</span>
-                      <span class="font-mono">
-                        {req().duration != null ? formatDuration(req().duration!) : "—"}
-                      </span>
-                    </div>
-                    <div class="flex justify-between text-xs">
-                      <span class="text-muted-foreground">Started</span>
-                      <span class="font-mono">
-                        {new Date(req().timestamp).toISOString()}
-                      </span>
-                    </div>
-                  </div>
-                </Show>
+            <Show when={filteredRequests().length === 0}>
+              <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
+                {networkState.capturing
+                  ? "Waiting for requests..."
+                  : "Start capture to monitor network traffic"}
               </div>
-            )}
-          </Show>
-        </div>
-      </div>
+            </Show>
+          </div>
+        }
+        right={
+          <div class="h-full overflow-auto">
+            <Show
+              when={selectedRequest()}
+              fallback={
+                <div class="flex h-full items-center justify-center text-xs text-muted-foreground">
+                  Select a request to view details
+                </div>
+              }
+            >
+              {(req) => (
+                <div class="p-4">
+                  <div class="mb-3 flex items-center gap-2">
+                    <span
+                      class={cn(
+                        "font-mono font-bold",
+                        getStatusColor(req().statusCode),
+                      )}
+                    >
+                      {req().statusCode}
+                    </span>
+                    <CopyButton value={String(req().statusCode ?? "")} />
+                    <span class="font-medium">{req().method}</span>
+                    <span class="rounded bg-muted px-1 py-0.5 text-[10px]">
+                      {req().protocol}
+                    </span>
+                  </div>
+                  <div class="mb-3 flex items-start gap-1">
+                    <span class="break-all font-mono text-xs text-muted-foreground">
+                      {req().url}
+                    </span>
+                    <CopyButton value={req().url} />
+                  </div>
+
+                  {/* Sub-tabs */}
+                  <div class="flex gap-2 border-b pb-2 text-xs">
+                    {(["request", "response", "timing"] as DetailTab[]).map((tab) => (
+                      <button
+                        class={cn(
+                          "cursor-pointer rounded px-2 py-0.5",
+                          detailTab() === tab
+                            ? "bg-muted text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                        onClick={() => setDetailTab(tab)}
+                      >
+                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Request tab */}
+                  <Show when={detailTab() === "request"}>
+                    <div class="mt-3">
+                      <h4 class="mb-1 text-xs font-medium text-muted-foreground">
+                        Request Headers
+                      </h4>
+                      <div class="space-y-0.5">
+                        {Object.entries(req().requestHeaders).map(([k, v]) => (
+                          <div class="group/header flex items-center gap-2 text-xs">
+                            <span class="shrink-0 text-primary">{k}:</span>
+                            <span class="break-all text-muted-foreground">{v}</span>
+                            <CopyButton value={String(v)} class="opacity-0 group-hover/header:opacity-100" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <Show when={req().requestBody}>
+                      <div class="mt-3">
+                        <h4 class="mb-1 text-xs font-medium text-muted-foreground">
+                          Body
+                        </h4>
+                        <pre class="rounded bg-background p-2 font-mono text-xs">
+                          {req().requestBody}
+                        </pre>
+                      </div>
+                    </Show>
+                  </Show>
+
+                  {/* Response tab */}
+                  <Show when={detailTab() === "response"}>
+                    <div class="mt-3">
+                      <h4 class="mb-1 text-xs font-medium text-muted-foreground">
+                        Response Headers
+                      </h4>
+                      <div class="space-y-0.5">
+                        {Object.entries(req().responseHeaders).map(([k, v]) => (
+                          <div class="group/header flex items-center gap-2 text-xs">
+                            <span class="shrink-0 text-primary">{k}:</span>
+                            <span class="break-all text-muted-foreground">{v}</span>
+                            <CopyButton value={String(v)} class="opacity-0 group-hover/header:opacity-100" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <Show when={req().responseBody}>
+                      <div class="mt-3">
+                        <h4 class="mb-1 text-xs font-medium text-muted-foreground">
+                          Body
+                        </h4>
+                        <pre class="rounded bg-background p-2 font-mono text-xs">
+                          {req().responseBody}
+                        </pre>
+                      </div>
+                    </Show>
+                  </Show>
+
+                  {/* Timing tab */}
+                  <Show when={detailTab() === "timing"}>
+                    <div class="mt-3 space-y-1">
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted-foreground">Duration</span>
+                        <span class="font-mono">
+                          {req().duration != null ? formatDuration(req().duration!) : "—"}
+                        </span>
+                      </div>
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted-foreground">Started</span>
+                        <span class="font-mono">
+                          {new Date(req().timestamp).toISOString()}
+                        </span>
+                      </div>
+                    </div>
+                  </Show>
+                </div>
+              )}
+            </Show>
+          </div>
+        }
+      />
     </div>
   );
 }

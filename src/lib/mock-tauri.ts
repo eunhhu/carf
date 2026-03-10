@@ -468,6 +468,14 @@ function emit(event: string, payload: unknown): void {
 	}
 }
 
+function emitSessionEvent(
+	event: string,
+	sessionId: string,
+	payload: Record<string, unknown>,
+): void {
+	emit(event, { sessionId, ...payload });
+}
+
 function addListener(event: string, handler: EventHandler): () => void {
 	const handlers = listeners.get(event) ?? new Set<EventHandler>();
 	handlers.add(handler);
@@ -518,7 +526,7 @@ function createSession(
 	});
 
 	globalThis.setTimeout(() => {
-		emit("carf://console/message", {
+		emitSessionEvent("carf://console/message", session.id, {
 			level: "info",
 			source: "system",
 			content: `Attached to ${processName}`,
@@ -612,18 +620,23 @@ function scheduleHookTraffic(
 		const liveHook = sessionState.hooks.find((item) => item.id === hook.id);
 		if (!liveHook || !liveHook.active) return;
 		liveHook.hits += 1;
-		emitHookEvent(liveHook, "enter");
+		emitHookEvent(sessionState.session.id, liveHook, "enter");
 	}, 80);
 
 	globalThis.setTimeout(() => {
 		const liveHook = sessionState.hooks.find((item) => item.id === hook.id);
 		if (!liveHook || !liveHook.active) return;
-		emitHookEvent(liveHook, "leave");
+		emitHookEvent(sessionState.session.id, liveHook, "leave");
 	}, 140);
 }
 
-function emitHookEvent(hook: HookInfo, type: HookEvent["type"]): void {
+function emitHookEvent(
+	sessionId: string,
+	hook: HookInfo,
+	type: HookEvent["type"],
+): void {
 	const payload: HookEvent = {
+		sessionId,
 		hookId: hook.id,
 		type,
 		timestamp: Date.now(),
@@ -651,9 +664,10 @@ function buildHexString(address: string, size: number): string {
 	).join("");
 }
 
-function createNetworkRequest(): NetworkRequest {
+function createNetworkRequest(sessionId: string): NetworkRequest {
 	const requestId = `req-${runtimeState.nextNetworkId++}`;
 	return {
+		sessionId,
 		id: requestId,
 		timestamp: Date.now(),
 		method: requestId.endsWith("1") ? "POST" : "GET",
@@ -684,11 +698,17 @@ function startNetworkCapture(sessionState: MockSessionState): void {
 	if (sessionState.networkTimer) return;
 
 	globalThis.setTimeout(() => {
-		emit("carf://network/request", createNetworkRequest());
+		emit(
+			"carf://network/request",
+			createNetworkRequest(sessionState.session.id),
+		);
 	}, 50);
 
 	sessionState.networkTimer = setInterval(() => {
-		emit("carf://network/request", createNetworkRequest());
+		emit(
+			"carf://network/request",
+			createNetworkRequest(sessionState.session.id),
+		);
 	}, 2_000);
 }
 
@@ -698,10 +718,10 @@ function stopNetworkCapture(sessionState: MockSessionState): void {
 	sessionState.networkTimer = null;
 }
 
-function emitStalkerBatch(events: StalkerEvent[]): void {
-	emit("carf://stalker/event", { events });
+function emitStalkerBatch(sessionId: string, events: StalkerEvent[]): void {
+	emit("carf://stalker/event", { sessionId, events });
 	for (const event of events) {
-		emit("carf://stalker/event", event);
+		emit("carf://stalker/event", { sessionId, ...event });
 	}
 }
 
@@ -812,7 +832,7 @@ export async function mockInvoke<T>(
 			);
 			delete runtimeState.processes[deviceId];
 			delete runtimeState.applications[deviceId];
-			emit("carf://device/removed", { id: deviceId });
+			emit("carf://device/removed", deviceId);
 			return undefined as T;
 		}
 		case "list_processes": {
@@ -939,7 +959,7 @@ async function handleMockRpc<T>(
 			return undefined as T;
 		case "loadScript": {
 			sessionState.scriptLoaded = true;
-			emit("carf://console/message", {
+			emitSessionEvent("carf://console/message", sessionState.session.id, {
 				level: "info",
 				source: "agent",
 				content: "Mock script loaded",
@@ -949,7 +969,7 @@ async function handleMockRpc<T>(
 		}
 		case "unloadScript": {
 			sessionState.scriptLoaded = false;
-			emit("carf://console/message", {
+			emitSessionEvent("carf://console/message", sessionState.session.id, {
 				level: "info",
 				source: "agent",
 				content: "Mock script unloaded",
@@ -1116,15 +1136,29 @@ async function handleMockRpc<T>(
 				},
 			];
 			sessionState.stalkerEvents[threadId] = events;
-			globalThis.setTimeout(() => emitStalkerBatch(events), 50);
-			globalThis.setTimeout(() => emitStalkerBatch(events), 400);
-			globalThis.setTimeout(() => emitStalkerBatch(events), 900);
+			globalThis.setTimeout(
+				() => emitStalkerBatch(sessionState.session.id, events),
+				50,
+			);
+			globalThis.setTimeout(
+				() => emitStalkerBatch(sessionState.session.id, events),
+				400,
+			);
+			globalThis.setTimeout(
+				() => emitStalkerBatch(sessionState.session.id, events),
+				900,
+			);
 			if (!sessionState.stalkerTimers[threadId]) {
 				sessionState.stalkerTimers[threadId] = setInterval(() => {
-					emitStalkerBatch(events);
+					emitStalkerBatch(sessionState.session.id, events);
 				}, 1_200);
 			}
-			return undefined as T;
+			return {
+				threadId,
+				started: true,
+				events: ["call", "ret"],
+				mode: "stalker",
+			} as T;
 		}
 		case "stopStalker": {
 			const threadId = Number(params.threadId ?? 1337);

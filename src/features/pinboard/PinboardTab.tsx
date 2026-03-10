@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 import {
   pinboardState,
   filteredPins,
@@ -6,8 +6,18 @@ import {
   setPinTypeFilter,
   unpinItem,
   exportPins,
+  importPins,
+  updatePinTags,
+  updatePinMemo,
 } from "./pinboard.store";
+import {
+  ActionPopover,
+  buildAddressActions,
+} from "~/components/ActionPopover";
+import { CopyButton } from "~/components/CopyButton";
+import { InlineActions } from "~/components/InlineActions";
 import { navigateTo } from "~/lib/navigation";
+import { pickTextFile } from "~/lib/file-picker";
 import { cn } from "~/lib/cn";
 import { formatAddress } from "~/lib/format";
 import type { PinItem } from "~/lib/types";
@@ -22,6 +32,10 @@ const PIN_TYPE_COLORS: Record<PinItem["type"], string> = {
 };
 
 function PinboardTab() {
+  const [editingId, setEditingId] = createSignal<string | null>(null);
+  const [editTagInput, setEditTagInput] = createSignal("");
+  const [editMemoInput, setEditMemoInput] = createSignal("");
+
   function handleExport() {
     const json = exportPins();
     const blob = new Blob([json], { type: "application/json" });
@@ -33,6 +47,19 @@ function PinboardTab() {
     URL.revokeObjectURL(url);
   }
 
+  async function handleImport() {
+    try {
+      const selected = await pickTextFile(".json,application/json");
+      if (!selected) return;
+      const count = importPins(selected.content);
+      if (count === 0) {
+        console.info("No new pins to import (all duplicates)");
+      }
+    } catch (e) {
+      console.error("handleImport failed:", e);
+    }
+  }
+
   function handleJump(item: PinItem) {
     navigateTo({
       tab: item.source,
@@ -42,6 +69,22 @@ function PinboardTab() {
         type: item.type,
       },
     });
+  }
+
+  function startEditing(item: PinItem) {
+    setEditingId(item.id);
+    setEditTagInput(item.tags.join(", "));
+    setEditMemoInput(item.memo);
+  }
+
+  function saveEditing(id: string) {
+    const tags = editTagInput()
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    updatePinTags(id, tags);
+    updatePinMemo(id, editMemoInput());
+    setEditingId(null);
   }
 
   return (
@@ -73,12 +116,15 @@ function PinboardTab() {
             <option value="hook">Hook</option>
           </select>
           <button
-            class="rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+            class="cursor-pointer rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground"
             onClick={handleExport}
           >
             Export
           </button>
-          <button class="rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground">
+          <button
+            class="cursor-pointer rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+            onClick={handleImport}
+          >
             Import
           </button>
         </div>
@@ -87,61 +133,141 @@ function PinboardTab() {
       {/* Pin table */}
       <div class="flex-1 overflow-auto">
         {/* Table header */}
-        <div class="sticky top-0 flex gap-2 border-b bg-surface px-4 py-1.5 text-[10px] font-medium uppercase text-muted-foreground">
-          <span class="w-16">Type</span>
-          <span class="flex-1">Name</span>
-          <span class="w-28">Address</span>
-          <span class="w-16">Source</span>
-          <span class="w-32">Tags</span>
-          <span class="w-20" />
+        <div class="sticky top-0 flex items-center border-b bg-surface px-4 py-1.5 text-[10px] font-medium uppercase text-muted-foreground">
+          <span class="w-16 shrink-0">Type</span>
+          <span class="min-w-0 flex-1">Name</span>
+          <span class="w-36 shrink-0">Address</span>
+          <span class="w-14 shrink-0">Source</span>
+          <span class="w-28 shrink-0">Tags</span>
+          <span class="w-20 shrink-0" />
         </div>
 
         <For each={filteredPins()}>
           {(item) => (
-            <div class="flex items-center gap-2 border-b border-border/30 px-4 py-1.5 text-xs hover:bg-surface-hover">
-              <span class="w-16">
-                <span
-                  class={cn(
-                    "rounded px-1.5 py-0.5 text-[10px] font-medium",
-                    PIN_TYPE_COLORS[item.type],
-                  )}
-                >
-                  {item.type}
+            <div class="group/row border-b border-border/30 hover:bg-surface-hover">
+              <div class="flex items-center px-4 py-1.5 text-xs">
+                <span class="w-16 shrink-0">
+                  <span
+                    class={cn(
+                      "rounded px-1.5 py-0.5 text-[10px] font-medium",
+                      PIN_TYPE_COLORS[item.type],
+                    )}
+                  >
+                    {item.type}
+                  </span>
                 </span>
-              </span>
-              <button
-                class="flex-1 truncate text-left font-mono hover:text-primary"
-                onClick={() => handleJump(item)}
-              >
-                {item.name}
-              </button>
-              <span class="w-28 font-mono text-muted-foreground">
-                {item.address ? formatAddress(item.address) : "-"}
-              </span>
-              <span class="w-16 text-muted-foreground">{item.source}</span>
-              <span class="w-32">
-                <For each={item.tags}>
-                  {(tag) => (
-                    <span class="mr-1 rounded bg-muted px-1 py-0.5 text-[10px]">
-                      {tag}
-                    </span>
-                  )}
-                </For>
-              </span>
-              <span class="w-20 flex items-center justify-end gap-1">
-                <button
-                  class="rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-                  onClick={() => handleJump(item)}
-                >
-                  Jump
-                </button>
-                <button
-                  class="rounded px-1 py-0.5 text-[10px] text-destructive hover:bg-destructive/10"
-                  onClick={() => unpinItem(item.id)}
-                >
-                  Unpin
-                </button>
-              </span>
+                <span class="flex min-w-0 flex-1 items-center gap-1">
+                  <button
+                    class="min-w-0 cursor-pointer truncate text-left font-mono hover:text-primary"
+                    onClick={() => handleJump(item)}
+                    title={item.name}
+                  >
+                    {item.name}
+                  </button>
+                  <CopyButton value={item.name} class="shrink-0" />
+                </span>
+                <span class="flex w-36 shrink-0 items-center gap-1">
+                  <Show
+                    when={item.address}
+                    fallback={
+                      <span class="font-mono text-muted-foreground">-</span>
+                    }
+                  >
+                    <ActionPopover
+                      type="address"
+                      value={item.address!}
+                      actions={buildAddressActions(item.address!, item.name)}
+                    >
+                      {formatAddress(item.address!)}
+                    </ActionPopover>
+                    <CopyButton value={item.address!} class="shrink-0" />
+                  </Show>
+                </span>
+                <span class="w-14 shrink-0 text-muted-foreground">{item.source}</span>
+                <span class="w-28 shrink-0">
+                  <For each={item.tags}>
+                    {(tag) => (
+                      <span class="mr-1 rounded bg-muted px-1 py-0.5 text-[10px]">
+                        {tag}
+                      </span>
+                    )}
+                  </For>
+                </span>
+                <span class="flex w-20 shrink-0 items-center justify-end">
+                  <InlineActions
+                    primary={[
+                      {
+                        label: "Jump",
+                        variant: "primary",
+                        onClick: () => handleJump(item),
+                      },
+                    ]}
+                    overflow={[
+                      {
+                        label: "Edit Tags/Memo",
+                        onClick: () => startEditing(item),
+                      },
+                      {
+                        label: "Copy Name",
+                        onClick: () => navigator.clipboard.writeText(item.name),
+                      },
+                      ...(item.address
+                        ? [
+                            {
+                              label: "Copy Address",
+                              onClick: () =>
+                                navigator.clipboard.writeText(item.address!),
+                            },
+                          ]
+                        : []),
+                      {
+                        label: "Unpin",
+                        separator: true,
+                        onClick: () => unpinItem(item.id),
+                      },
+                    ]}
+                  />
+                </span>
+              </div>
+              {/* Inline edit panel */}
+              <Show when={editingId() === item.id}>
+                <div class="flex items-center gap-2 border-t border-border/20 bg-surface px-4 py-2">
+                  <div class="flex flex-1 gap-2">
+                    <input
+                      type="text"
+                      class="w-48 rounded border bg-background px-2 py-1 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
+                      placeholder="Tags (comma separated)"
+                      value={editTagInput()}
+                      onInput={(e) => setEditTagInput(e.currentTarget.value)}
+                    />
+                    <input
+                      type="text"
+                      class="flex-1 rounded border bg-background px-2 py-1 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
+                      placeholder="Memo"
+                      value={editMemoInput()}
+                      onInput={(e) => setEditMemoInput(e.currentTarget.value)}
+                    />
+                  </div>
+                  <button
+                    class="cursor-pointer rounded bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90"
+                    onClick={() => saveEditing(item.id)}
+                  >
+                    Save
+                  </button>
+                  <button
+                    class="cursor-pointer rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => setEditingId(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </Show>
+              {/* Show memo if present */}
+              <Show when={item.memo && editingId() !== item.id}>
+                <div class="px-4 pb-1.5 text-[10px] text-muted-foreground">
+                  {item.memo}
+                </div>
+              </Show>
             </div>
           )}
         </For>

@@ -1,10 +1,24 @@
 import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
+import { appendGraphEvents } from "~/features/callgraph/callgraph.store";
 import { addHook } from "~/features/hooks/hooks.store";
+import {
+	extractEventSessionId,
+	normalizeStalkerEventPayload,
+} from "~/lib/event-normalizers";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke, listen } from "~/lib/tauri";
 import type { HookInfo, StalkerEvent } from "~/lib/types";
 
 export type NativeSubMode = "interceptor" | "stalker" | "functions";
+type StalkerMode = "stalker" | "sampling";
+
+interface StartStalkerResult {
+	threadId: number;
+	started: boolean;
+	events: string[];
+	mode?: StalkerMode;
+}
 
 interface FunctionCallResult {
 	address: string;
@@ -17,6 +31,7 @@ interface NativeState {
 	stalkerThreadId: number | null;
 	stalkerEvents: StalkerEvent[];
 	stalkerActive: boolean;
+	stalkerMode: StalkerMode;
 	functionAddress: string;
 	functionRetType: string;
 	functionArgTypes: string[];
@@ -24,16 +39,21 @@ interface NativeState {
 	functionResults: FunctionCallResult[];
 }
 
-const [state, setState] = createStore<NativeState>({
+const DEFAULT_STATE: NativeState = {
 	interceptorTarget: "",
 	stalkerThreadId: null,
 	stalkerEvents: [],
 	stalkerActive: false,
+	stalkerMode: "stalker",
 	functionAddress: "",
 	functionRetType: "void",
 	functionArgTypes: [],
 	functionArgs: [],
 	functionResults: [],
+};
+
+const [state, setState] = createStore<NativeState>({
+	...DEFAULT_STATE,
 });
 
 const [subMode, setSubMode] = createSignal<NativeSubMode>("interceptor");
@@ -58,12 +78,21 @@ function setStalkerActive(active: boolean): void {
 	setState("stalkerActive", active);
 }
 
+function setStalkerMode(mode: StalkerMode): void {
+	setState("stalkerMode", mode);
+}
+
 function setFunctionAddress(address: string): void {
 	setState("functionAddress", address);
 }
 
 function addFunctionResult(result: FunctionCallResult): void {
 	setState("functionResults", (prev) => [...prev, result]);
+}
+
+function resetNativeState(): void {
+	setState(restoreStore(DEFAULT_STATE));
+	setSubMode("interceptor");
 }
 
 // ─── RPC Functions ───
@@ -111,10 +140,10 @@ async function startStalker(
 	threadId: number,
 	events?: string[],
 ): Promise<void> {
-	setStalkerActive(true);
+	clearStalkerEvents();
 	try {
 		const selectedEvents = events ?? ["call", "ret"];
-		await invoke("rpc_call", {
+		const result = await invoke<StartStalkerResult>("rpc_call", {
 			sessionId,
 			method: "startStalker",
 			params: {
@@ -127,8 +156,19 @@ async function startStalker(
 				},
 			},
 		});
+		setStalkerThread(threadId);
+		setStalkerActive(true);
+		const mode = result.mode ?? "stalker";
+		setStalkerMode(mode);
+		if (mode === "sampling") {
+			void fetchStalkerEvents(sessionId, threadId).catch((error) => {
+				console.error("initial sampling fetch failed:", error);
+			});
+		}
 	} catch (e) {
 		setStalkerActive(false);
+		setStalkerThread(null);
+		setStalkerMode("stalker");
 		console.error("startStalker failed:", e);
 		throw e;
 	}
@@ -146,6 +186,8 @@ async function stopStalker(sessionId: string, threadId: number): Promise<void> {
 		throw e;
 	} finally {
 		setStalkerActive(false);
+		setStalkerThread(null);
+		setStalkerMode("stalker");
 	}
 }
 
@@ -178,30 +220,76 @@ async function fetchStalkerEvents(
 	threadId: number,
 ): Promise<void> {
 	try {
-		const result = await invoke<StalkerEvent[] | { events: StalkerEvent[] }>(
-			"rpc_call",
-			{
-				sessionId,
-				method: "getStalkerEvents",
-				params: { threadId },
-			},
-		);
-		addStalkerEvents(Array.isArray(result) ? result : (result.events ?? []));
+		const result = await invoke<unknown>("rpc_call", {
+			sessionId,
+			method: "getStalkerEvents",
+			params: { threadId },
+		});
+		const events = normalizeStalkerEventPayload(result);
+		addStalkerEvents(events);
+		appendGraphEvents(events);
 	} catch (e) {
 		console.error("fetchStalkerEvents failed:", e);
 		throw e;
 	}
 }
 
-function setupStalkerListener(_sessionId: string): () => void {
-	return listen<StalkerEvent[] | { events: StalkerEvent[] }>(
-		"carf://stalker/event",
-		(payload) => {
-			addStalkerEvents(
-				Array.isArray(payload) ? payload : (payload.events ?? []),
-			);
-		},
-	);
+function setupStalkerListener(sessionId: string): () => void {
+	return listen<unknown>("carf://stalker/event", (payload) => {
+		if (extractEventSessionId(payload) !== sessionId) {
+			return;
+		}
+		const events = normalizeStalkerEventPayload(payload);
+		addStalkerEvents(events);
+		appendGraphEvents(events);
+	});
+}
+
+function setupStalkerSamplingPoller(sessionId: string): () => void {
+	let inFlight = false;
+
+	const timer = setInterval(() => {
+		if (
+			inFlight ||
+			!state.stalkerActive ||
+			state.stalkerMode !== "sampling" ||
+			state.stalkerThreadId === null
+		) {
+			return;
+		}
+
+		inFlight = true;
+		void fetchStalkerEvents(sessionId, state.stalkerThreadId)
+			.catch(() => {})
+			.finally(() => {
+				inFlight = false;
+			});
+	}, 500);
+
+	return () => clearInterval(timer);
+}
+
+function snapshotNativeState(): {
+	state: NativeState;
+	subMode: NativeSubMode;
+} {
+	return {
+		state: snapshotStore(state),
+		subMode: subMode(),
+	};
+}
+
+function restoreNativeState(snapshot?: {
+	state: NativeState;
+	subMode: NativeSubMode;
+}): void {
+	if (!snapshot) {
+		resetNativeState();
+		return;
+	}
+
+	setState(restoreStore(snapshot.state));
+	setSubMode(snapshot.subMode);
 }
 
 export {
@@ -213,8 +301,10 @@ export {
 	addStalkerEvents,
 	clearStalkerEvents,
 	setStalkerActive,
+	setStalkerMode,
 	setFunctionAddress,
 	addFunctionResult,
+	resetNativeState,
 	hookNativeFunction,
 	unhookNativeFunction,
 	startStalker,
@@ -222,4 +312,7 @@ export {
 	callNativeFunction,
 	fetchStalkerEvents,
 	setupStalkerListener,
+	setupStalkerSamplingPoller,
+	snapshotNativeState,
+	restoreNativeState,
 };

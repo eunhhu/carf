@@ -1,5 +1,6 @@
 import { Switch, Match } from "solid-js";
 import { SessionView } from "~/features/session/SessionView";
+import "~/features/session/session-scope";
 import { appView } from "~/features/session/session.store";
 import DevicePanel from "~/features/device/DevicePanel";
 import ProcessPanel from "~/features/process/ProcessPanel";

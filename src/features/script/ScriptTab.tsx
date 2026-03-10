@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, createMemo } from "solid-js";
 import { activeSession } from "~/features/session/session.store";
 import { cn } from "~/lib/cn";
 import { pickTextFile } from "~/lib/file-picker";
@@ -96,20 +96,14 @@ function ScriptTab() {
 
 			{/* Content: Editor + Templates sidebar */}
 			<div class="flex flex-1 overflow-hidden">
-				{/* Editor */}
-				<div class="flex-1 overflow-hidden">
+				{/* Editor with line numbers */}
+				<div class="flex flex-1 flex-col overflow-hidden">
 					<Show when={scriptState.error}>
 						<div class="border-b bg-destructive/5 px-4 py-2 text-xs text-destructive">
 							{scriptState.error}
 						</div>
 					</Show>
-					<textarea
-						class="h-full w-full resize-none bg-background p-4 font-mono text-xs text-foreground outline-none"
-						placeholder="// Write Frida script here or select a template..."
-						value={scriptState.code}
-						onInput={(e) => setCode(e.currentTarget.value)}
-						spellcheck={false}
-					/>
+					<ScriptEditor />
 				</div>
 
 				{/* Templates sidebar */}
@@ -135,6 +129,50 @@ function ScriptTab() {
 					</div>
 				</div>
 			</div>
+		</div>
+	);
+}
+
+function ScriptEditor() {
+	let textareaRef: HTMLTextAreaElement | undefined;
+	let lineNumbersRef: HTMLDivElement | undefined;
+
+	const lineCount = createMemo(() => {
+		const code = scriptState.code;
+		if (!code) return 1;
+		return code.split("\n").length;
+	});
+
+	function handleScroll() {
+		if (textareaRef && lineNumbersRef) {
+			lineNumbersRef.scrollTop = textareaRef.scrollTop;
+		}
+	}
+
+	return (
+		<div class="flex flex-1 overflow-hidden">
+			{/* Line numbers */}
+			<div
+				ref={lineNumbersRef}
+				class="shrink-0 overflow-hidden border-r bg-surface py-2 text-right font-mono text-xs leading-[18px] text-muted-foreground select-none"
+			>
+				<For each={Array.from({ length: lineCount() }, (_, i) => i + 1)}>
+					{(num) => (
+						<div class="px-2">{num}</div>
+					)}
+				</For>
+			</div>
+			{/* Code textarea */}
+			<textarea
+				ref={textareaRef}
+				class="flex-1 resize-none bg-background py-2 pl-3 pr-4 font-mono text-xs leading-[18px] text-foreground outline-none"
+				placeholder="// Write Frida script here or select a template..."
+				value={scriptState.code}
+				onInput={(e) => setCode(e.currentTarget.value)}
+				onScroll={handleScroll}
+				spellcheck={false}
+				style={{ "tab-size": "2" }}
+			/>
 		</div>
 	);
 }

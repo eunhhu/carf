@@ -1,7 +1,10 @@
 import { createStore } from "solid-js/store";
 import { createSignal } from "solid-js";
-import type { ModuleInfo, ExportInfo, ImportInfo } from "~/lib/types";
+import type { ModuleInfo, ExportInfo, ImportInfo, SymbolInfo } from "~/lib/types";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
+
+export type ModuleSubTab = "exports" | "imports" | "symbols";
 
 interface ModuleState {
   modules: ModuleInfo[];
@@ -9,17 +12,29 @@ interface ModuleState {
   selectedModule: string | null;
   exports: ExportInfo[];
   imports: ImportInfo[];
+  symbols: SymbolInfo[];
   exportsLoading: boolean;
+  importsLoading: boolean;
+  symbolsLoading: boolean;
 }
 
-const [state, setState] = createStore<ModuleState>({
+const DEFAULT_STATE: ModuleState = {
   modules: [],
   loading: false,
   selectedModule: null,
   exports: [],
   imports: [],
+  symbols: [],
   exportsLoading: false,
+  importsLoading: false,
+  symbolsLoading: false,
+};
+
+const [state, setState] = createStore<ModuleState>({
+  ...DEFAULT_STATE,
 });
+
+const [moduleSubTab, setModuleSubTab] = createSignal<ModuleSubTab>("exports");
 
 const [searchQuery, setSearchQuery] = createSignal("");
 
@@ -38,7 +53,8 @@ function setModules(modules: ModuleInfo[]): void {
 }
 
 function selectModule(name: string | null): void {
-  setState({ selectedModule: name, exports: [], imports: [] });
+  setState({ selectedModule: name, exports: [], imports: [], symbols: [] });
+  setModuleSubTab("exports");
 }
 
 function setModuleExports(exports: ExportInfo[]): void {
@@ -55,6 +71,39 @@ function setLoading(loading: boolean): void {
 
 function setExportsLoading(loading: boolean): void {
   setState("exportsLoading", loading);
+}
+
+function resetModuleState(): void {
+  setState(restoreStore(DEFAULT_STATE));
+  setModuleSubTab("exports");
+  setSearchQuery("");
+}
+
+function snapshotModuleState(): {
+  state: ModuleState;
+  moduleSubTab: ModuleSubTab;
+  searchQuery: string;
+} {
+  return {
+    state: snapshotStore(state),
+    moduleSubTab: moduleSubTab(),
+    searchQuery: searchQuery(),
+  };
+}
+
+function restoreModuleState(snapshot?: {
+  state: ModuleState;
+  moduleSubTab: ModuleSubTab;
+  searchQuery: string;
+}): void {
+  if (!snapshot) {
+    resetModuleState();
+    return;
+  }
+
+  setState(restoreStore(snapshot.state));
+  setModuleSubTab(snapshot.moduleSubTab);
+  setSearchQuery(snapshot.searchQuery);
 }
 
 const selectedModuleInfo = () =>
@@ -97,14 +146,34 @@ async function fetchModuleImports(
   sessionId: string,
   moduleName: string,
 ): Promise<void> {
+  setState("importsLoading", true);
   try {
     const result = await invoke<ImportInfo[]>("rpc_call", {
       sessionId,
       method: "getModuleImports",
       params: { moduleName },
     });
-    setModuleImports(result);
+    setState({ imports: result ?? [], importsLoading: false });
   } catch (err) {
+    setState("importsLoading", false);
+    throw err;
+  }
+}
+
+async function fetchModuleSymbols(
+  sessionId: string,
+  moduleName: string,
+): Promise<void> {
+  setState("symbolsLoading", true);
+  try {
+    const result = await invoke<SymbolInfo[]>("rpc_call", {
+      sessionId,
+      method: "getModuleSymbols",
+      params: { moduleName },
+    });
+    setState({ symbols: result ?? [], symbolsLoading: false });
+  } catch (err) {
+    setState("symbolsLoading", false);
     throw err;
   }
 }
@@ -113,6 +182,8 @@ export {
   state as moduleState,
   searchQuery as moduleSearchQuery,
   setSearchQuery as setModuleSearchQuery,
+  moduleSubTab,
+  setModuleSubTab,
   filteredModules,
   setModules,
   selectModule,
@@ -120,8 +191,12 @@ export {
   setModuleImports,
   setLoading as setModuleLoading,
   setExportsLoading,
+  resetModuleState,
+  snapshotModuleState,
+  restoreModuleState,
   selectedModuleInfo,
   fetchModules,
   fetchModuleExports,
   fetchModuleImports,
+  fetchModuleSymbols,
 };

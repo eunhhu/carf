@@ -16,6 +16,13 @@ import {
 } from "./objc.store";
 import { cn } from "~/lib/cn";
 import { activeSession } from "~/features/session/session.store";
+import { hooksState, deleteHook } from "~/features/hooks/hooks.store";
+import { SplitPane } from "~/components/SplitPane";
+import { CopyButton } from "~/components/CopyButton";
+import { InlineActions } from "~/components/InlineActions";
+import type { ActionDef, OverflowAction } from "~/components/InlineActions";
+import { ActionPopover, buildClassActions } from "~/components/ActionPopover";
+import { navigateTo } from "~/lib/navigation";
 
 function ObjCTab() {
   createEffect(() => {
@@ -66,9 +73,13 @@ function ObjCTab() {
         </div>
       </div>
 
-      {/* Split: Class list (40%) + Detail (60%) */}
-      <div class="flex flex-1 overflow-hidden">
-        <div class="w-[40%] overflow-auto border-r">
+      {/* Split: Class list + Detail */}
+      <SplitPane
+        id="objc"
+        minLeft={200}
+        maxLeft={400}
+        defaultLeft={280}
+        left={
           <Show
             when={!objcState.classesLoading}
             fallback={
@@ -81,9 +92,9 @@ function ObjCTab() {
               {(className) => {
                 const isSelected = () => objcState.selectedClass === className;
                 return (
-                  <button
+                  <div
                     class={cn(
-                      "flex w-full items-center px-3 py-1 text-left font-mono text-xs transition-colors hover:bg-surface-hover",
+                      "group/row flex w-full cursor-pointer items-center px-3 py-1 text-left font-mono text-xs transition-colors hover:bg-surface-hover",
                       isSelected() && "bg-muted",
                     )}
                     onClick={() => {
@@ -94,15 +105,24 @@ function ObjCTab() {
                       }
                     }}
                   >
-                    <span class="truncate">{className}</span>
-                  </button>
+                    <ActionPopover
+                      type="class"
+                      value={className}
+                      actions={buildClassActions(className, "objc")}
+                      class="truncate"
+                    >
+                      <span class="truncate" title={className}>
+                        {className}
+                      </span>
+                    </ActionPopover>
+                    <CopyButton value={className} class="ml-auto opacity-0 group-hover/row:opacity-100" />
+                  </div>
                 );
               }}
             </For>
           </Show>
-        </div>
-
-        <div class="w-[60%] overflow-auto">
+        }
+        right={
           <Show
             when={objcState.selectedClass}
             fallback={
@@ -112,16 +132,19 @@ function ObjCTab() {
             }
           >
             <div class="p-4">
-              <h3 class="mb-3 font-mono text-sm font-semibold">
-                {objcState.selectedClass}
-              </h3>
+              <div class="mb-3 flex items-center gap-2">
+                <h3 class="font-mono text-sm font-semibold" title={objcState.selectedClass!}>
+                  {objcState.selectedClass}
+                </h3>
+                <CopyButton value={objcState.selectedClass!} />
+              </div>
 
               <div class="flex gap-2 border-b pb-2 text-xs">
                 <For each={["methods", "instances"] as const}>
                   {(tab) => (
                     <button
                       class={cn(
-                        "rounded px-2 py-0.5 capitalize",
+                        "cursor-pointer rounded px-2 py-0.5 capitalize",
                         objcSubTab() === tab
                           ? "bg-muted text-foreground"
                           : "text-muted-foreground hover:text-foreground",
@@ -137,31 +160,94 @@ function ObjCTab() {
               <Show when={objcSubTab() === "methods"}>
                 <div class="mt-2">
                   <For each={objcState.methods}>
-                    {(method) => (
-                      <div class="flex items-center gap-2 py-0.5 text-xs">
-                        <span class={cn(
-                          "w-3 text-center",
-                          method.type === "instance" ? "text-success" : "text-primary",
-                        )}>
-                          {method.type === "instance" ? "-" : "+"}
-                        </span>
-                        <Show when={method.hooked}>
-                          <span class="rounded bg-primary/10 px-1 text-[10px] text-primary">H</span>
-                        </Show>
-                        <span class="font-mono">{method.selector}</span>
-                        <button
-                          class="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] hover:bg-primary/10 hover:text-primary"
-                          onClick={() => {
-                            const session = activeSession();
-                            if (session && objcState.selectedClass) {
-                              hookObjcMethod(session.id, objcState.selectedClass, method.selector);
-                            }
-                          }}
-                        >
-                          Hook
-                        </button>
-                      </div>
-                    )}
+                    {(method) => {
+                      const isHooked = () => method.hooked;
+
+                      const primaryActions = (): ActionDef[] => {
+                        if (isHooked()) {
+                          return [
+                            {
+                              label: "Unhook",
+                              variant: "danger",
+                              onClick: (e: MouseEvent) => {
+                                e.stopPropagation();
+                                const session = activeSession();
+                                if (session && objcState.selectedClass) {
+                                  const hook = hooksState.hooks.find(
+                                    (h) =>
+                                      h.type === "objc" &&
+                                      h.target === `${objcState.selectedClass}::${method.selector}`,
+                                  );
+                                  if (hook) {
+                                    deleteHook(session.id, hook);
+                                  }
+                                }
+                              },
+                            },
+                          ];
+                        }
+                        return [
+                          {
+                            label: "Hook",
+                            variant: "primary",
+                            onClick: (e: MouseEvent) => {
+                              e.stopPropagation();
+                              const session = activeSession();
+                              if (session && objcState.selectedClass) {
+                                hookObjcMethod(session.id, objcState.selectedClass, method.selector);
+                              }
+                            },
+                          },
+                        ];
+                      };
+
+                      const overflowActions = (): OverflowAction[] => [
+                        {
+                          label: "Copy Selector",
+                          onClick: () => {
+                            navigator.clipboard.writeText(method.selector);
+                          },
+                        },
+                        {
+                          label: "View Hook Events",
+                          onClick: () => {
+                            navigateTo({
+                              tab: "hooks",
+                              context: {
+                                className: objcState.selectedClass,
+                                selector: method.selector,
+                              },
+                            });
+                          },
+                        },
+                      ];
+
+                      return (
+                        <div class="group/row flex items-center gap-2 py-0.5 text-xs">
+                          <span
+                            class={cn(
+                              "w-3 text-center",
+                              method.type === "instance" ? "text-success" : "text-primary",
+                            )}
+                          >
+                            {method.type === "instance" ? "-" : "+"}
+                          </span>
+                          <Show when={isHooked()}>
+                            <span class="rounded bg-primary/10 px-1 text-[10px] text-primary">H</span>
+                          </Show>
+                          <span class="truncate font-mono" title={method.selector}>
+                            {method.selector}
+                          </span>
+                          <CopyButton value={method.selector} class="opacity-0 group-hover/row:opacity-100" />
+                          <div class="ml-auto">
+                            <InlineActions
+                              primary={primaryActions()}
+                              overflow={overflowActions()}
+                            />
+                          </div>
+                        </div>
+                      );
+                    }}
                   </For>
                 </div>
               </Show>
@@ -180,7 +266,7 @@ function ObjCTab() {
                   </For>
                   <Show when={objcState.instances.length === 0}>
                     <button
-                      class="rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90"
+                      class="cursor-pointer rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90"
                       onClick={() => {
                         const session = activeSession();
                         if (session && objcState.selectedClass) {
@@ -195,8 +281,8 @@ function ObjCTab() {
               </Show>
             </div>
           </Show>
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 }
