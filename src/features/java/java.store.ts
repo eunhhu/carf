@@ -1,7 +1,8 @@
-import { createSignal } from "solid-js";
+import { createDeferred, createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { addHook } from "~/features/hooks/hooks.store";
 import { activeSession } from "~/features/session/session.store";
+import { scheduleTransition } from "~/lib/scheduling";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
 import type { HookInfo, JavaFieldInfo, JavaMethodInfo } from "~/lib/types";
@@ -41,11 +42,9 @@ const [state, setState] = createStore<JavaState>({
 });
 
 const [searchQuery, setSearchQuery] = createSignal("");
+const deferredSearchQuery = createDeferred(searchQuery);
 const [subTab, setSubTab] = createSignal<JavaSubTab>("methods");
-const requestVersions = new Map<
-	string,
-	Record<JavaRequestKind, number>
->();
+const requestVersions = new Map<string, Record<JavaRequestKind, number>>();
 
 function getRequestVersions(
 	sessionId: string,
@@ -66,10 +65,7 @@ function getRequestVersions(
 	return created;
 }
 
-function beginRequest(
-	sessionId: string,
-	kind: JavaRequestKind,
-): number {
+function beginRequest(sessionId: string, kind: JavaRequestKind): number {
 	const versions = getRequestVersions(sessionId);
 	versions[kind] += 1;
 	return versions[kind];
@@ -86,11 +82,11 @@ function shouldCommitRequest(
 	);
 }
 
-const filteredClasses = () => {
-	const query = searchQuery().toLowerCase();
+const filteredClasses = createMemo(() => {
+	const query = deferredSearchQuery().trim().toLowerCase();
 	if (!query) return state.classes;
 	return state.classes.filter((c) => c.toLowerCase().includes(query));
-};
+});
 
 function setClasses(classes: string[]): void {
 	setState({ classes, classesLoading: false });
@@ -171,13 +167,21 @@ async function checkJavaAvailable(sessionId: string): Promise<boolean> {
 			params: {},
 		});
 		if (shouldCommitRequest(sessionId, "availability", requestId)) {
-			setAvailable(result);
+			scheduleTransition(() => {
+				if (shouldCommitRequest(sessionId, "availability", requestId)) {
+					setAvailable(result);
+				}
+			});
 		}
 		return result;
 	} catch (e) {
 		console.error("checkJavaAvailable error:", e);
 		if (shouldCommitRequest(sessionId, "availability", requestId)) {
-			setAvailable(false);
+			scheduleTransition(() => {
+				if (shouldCommitRequest(sessionId, "availability", requestId)) {
+					setAvailable(false);
+				}
+			});
 		}
 		return false;
 	}
@@ -196,11 +200,19 @@ async function fetchJavaClasses(
 			params: { filter },
 		});
 		if (shouldCommitRequest(sessionId, "classes", requestId)) {
-			setClasses(result);
+			scheduleTransition(() => {
+				if (shouldCommitRequest(sessionId, "classes", requestId)) {
+					setClasses(result);
+				}
+			});
 		}
 	} catch (e) {
 		if (shouldCommitRequest(sessionId, "classes", requestId)) {
-			setState({ classesLoading: false });
+			scheduleTransition(() => {
+				if (shouldCommitRequest(sessionId, "classes", requestId)) {
+					setState({ classesLoading: false });
+				}
+			});
 		}
 		console.error("fetchJavaClasses error:", e);
 	}
@@ -219,11 +231,19 @@ async function fetchJavaMethods(
 			params: { className },
 		});
 		if (shouldCommitRequest(sessionId, "methods", requestId)) {
-			setMethods(result);
+			scheduleTransition(() => {
+				if (shouldCommitRequest(sessionId, "methods", requestId)) {
+					setMethods(result);
+				}
+			});
 		}
 	} catch (e) {
 		if (shouldCommitRequest(sessionId, "methods", requestId)) {
-			setState({ detailLoading: false });
+			scheduleTransition(() => {
+				if (shouldCommitRequest(sessionId, "methods", requestId)) {
+					setState({ detailLoading: false });
+				}
+			});
 		}
 		console.error("fetchJavaMethods error:", e);
 	}
@@ -241,7 +261,11 @@ async function fetchJavaFields(
 			params: { className },
 		});
 		if (shouldCommitRequest(sessionId, "fields", requestId)) {
-			setFields(result);
+			scheduleTransition(() => {
+				if (shouldCommitRequest(sessionId, "fields", requestId)) {
+					setFields(result);
+				}
+			});
 		}
 	} catch (e) {
 		console.error("fetchJavaFields error:", e);
@@ -261,7 +285,11 @@ async function fetchJavaInstances(
 			params: { className, maxCount: maxCount ?? 10 },
 		});
 		if (shouldCommitRequest(sessionId, "instances", requestId)) {
-			setInstances(result);
+			scheduleTransition(() => {
+				if (shouldCommitRequest(sessionId, "instances", requestId)) {
+					setInstances(result);
+				}
+			});
 		}
 	} catch (e) {
 		console.error("fetchJavaInstances error:", e);

@@ -1,9 +1,10 @@
 import { createSignal } from "solid-js";
+import { scheduleTransition } from "./scheduling";
 import type { NavigateOptions, TabId } from "./types";
 
-const [activeTab, setActiveTab] = createSignal<TabId>("console");
+const [activeTab, setActiveTabSignal] = createSignal<TabId>("console");
 const [pendingContext, setPendingContext] = createSignal<
-  Record<string, unknown> | undefined
+	Record<string, unknown> | undefined
 >();
 const DEFAULT_TAB: TabId = "console";
 
@@ -12,18 +13,22 @@ const DEFAULT_TAB: TabId = "console";
  * Used for cross-tab navigation (e.g., clicking an address jumps to Memory tab).
  */
 export function navigateTo(options: NavigateOptions): void {
-  setPendingContext(options.context);
-  setActiveTab(options.tab);
+	scheduleTransition(() => {
+		setPendingContext(options.context);
+		setActiveTabSignal(options.tab);
+	});
 }
 
 /**
  * Consume the pending navigation context.
  * Called by the target tab component on mount to apply context.
  */
-export function consumeNavigationContext(): Record<string, unknown> | undefined {
-  const ctx = pendingContext();
-  setPendingContext(undefined);
-  return ctx;
+export function consumeNavigationContext():
+	| Record<string, unknown>
+	| undefined {
+	const ctx = pendingContext();
+	setPendingContext(undefined);
+	return ctx;
 }
 
 export function snapshotNavigationState(): {
@@ -37,8 +42,16 @@ export function snapshotNavigationState(): {
 export function restoreNavigationState(snapshot?: {
 	activeTab: TabId;
 }): void {
-	setActiveTab(snapshot?.activeTab ?? DEFAULT_TAB);
-	setPendingContext(undefined);
+	scheduleTransition(() => {
+		setActiveTabSignal(snapshot?.activeTab ?? DEFAULT_TAB);
+		setPendingContext(undefined);
+	});
+}
+
+function setActiveTab(tab: TabId): void {
+	scheduleTransition(() => {
+		setActiveTabSignal(tab);
+	});
 }
 
 export { activeTab, setActiveTab };

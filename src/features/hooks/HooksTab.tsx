@@ -1,4 +1,11 @@
-import { For, Show, createSignal, onMount } from "solid-js";
+import {
+	For,
+	Show,
+	createDeferred,
+	createMemo,
+	createSignal,
+	onMount,
+} from "solid-js";
 import { ActionPopover, buildAddressActions } from "~/components/ActionPopover";
 import { CopyButton } from "~/components/CopyButton";
 import { InlineActions } from "~/components/InlineActions";
@@ -23,6 +30,7 @@ function HooksTab() {
 	const [typeFilter, setTypeFilter] = createSignal<HookInfo["type"] | "all">(
 		"all",
 	);
+	const deferredTypeFilter = createDeferred(typeFilter);
 
 	onMount(() => {
 		const session = activeSession();
@@ -33,11 +41,11 @@ function HooksTab() {
 		}
 	});
 
-	const filtered = () => {
-		const filter = typeFilter();
+	const filtered = createMemo(() => {
+		const filter = deferredTypeFilter();
 		if (filter === "all") return hooksState.hooks;
 		return hooksState.hooks.filter((h) => h.type === filter);
-	};
+	});
 
 	function handleExport() {
 		const configs = exportHookConfigs();
@@ -100,12 +108,18 @@ function HooksTab() {
 		if (nativeHooks.length > 0) {
 			lines.push("// --- Native Hooks ---");
 			for (const hook of nativeHooks) {
-				lines.push(`Interceptor.attach(Module.findExportByName(${hook.target.includes("!") ? `"${hook.target.split("!")[0]}", "${hook.target.split("!")[1]}"` : `null, "${hook.target}"`}), {`);
+				lines.push(
+					`Interceptor.attach(Module.findExportByName(${hook.target.includes("!") ? `"${hook.target.split("!")[0]}", "${hook.target.split("!")[1]}"` : `null, "${hook.target}"`}), {`,
+				);
 				lines.push("  onEnter(args) {");
-				lines.push(`    send({ type: "hook:enter", data: { target: "${hook.target}", args: [args[0], args[1], args[2], args[3]].map(String) }});`);
+				lines.push(
+					`    send({ type: "hook:enter", data: { target: "${hook.target}", args: [args[0], args[1], args[2], args[3]].map(String) }});`,
+				);
 				lines.push("  },");
 				lines.push("  onLeave(retval) {");
-				lines.push(`    send({ type: "hook:leave", data: { target: "${hook.target}", retval: retval.toString() }});`);
+				lines.push(
+					`    send({ type: "hook:leave", data: { target: "${hook.target}", retval: retval.toString() }});`,
+				);
 				lines.push("  }");
 				lines.push("});");
 				lines.push("");
@@ -122,9 +136,13 @@ function HooksTab() {
 				const methodName = hook.target.slice(dot + 1);
 				lines.push(`  var cls = Java.use("${className}");`);
 				lines.push(`  cls.${methodName}.implementation = function() {`);
-				lines.push(`    send({ type: "hook:enter", data: { target: "${hook.target}", args: Array.from(arguments).map(String) }});`);
+				lines.push(
+					`    send({ type: "hook:enter", data: { target: "${hook.target}", args: Array.from(arguments).map(String) }});`,
+				);
 				lines.push(`    var ret = this.${methodName}.apply(this, arguments);`);
-				lines.push(`    send({ type: "hook:leave", data: { target: "${hook.target}", retval: String(ret) }});`);
+				lines.push(
+					`    send({ type: "hook:leave", data: { target: "${hook.target}", retval: String(ret) }});`,
+				);
 				lines.push("    return ret;");
 				lines.push("  };");
 				lines.push("");
@@ -140,13 +158,21 @@ function HooksTab() {
 				if (space <= 0) continue;
 				const className = hook.target.slice(0, space);
 				const selector = hook.target.slice(space + 1);
-				lines.push(`var ${className.replace(/[^a-zA-Z]/g, "_")}_impl = ObjC.classes.${className}["- ${selector}"].implementation;`);
-				lines.push(`Interceptor.attach(${className.replace(/[^a-zA-Z]/g, "_")}_impl, {`);
+				lines.push(
+					`var ${className.replace(/[^a-zA-Z]/g, "_")}_impl = ObjC.classes.${className}["- ${selector}"].implementation;`,
+				);
+				lines.push(
+					`Interceptor.attach(${className.replace(/[^a-zA-Z]/g, "_")}_impl, {`,
+				);
 				lines.push("  onEnter(args) {");
-				lines.push(`    send({ type: "hook:enter", data: { target: "${hook.target}" }});`);
+				lines.push(
+					`    send({ type: "hook:enter", data: { target: "${hook.target}" }});`,
+				);
 				lines.push("  },");
 				lines.push("  onLeave(retval) {");
-				lines.push(`    send({ type: "hook:leave", data: { target: "${hook.target}", retval: retval.toString() }});`);
+				lines.push(
+					`    send({ type: "hook:leave", data: { target: "${hook.target}", retval: retval.toString() }});`,
+				);
 				lines.push("  }");
 				lines.push("});");
 				lines.push("");
@@ -171,9 +197,10 @@ function HooksTab() {
 			},
 		];
 		if (hook.address) {
+			const address = hook.address;
 			actions.push({
 				label: "Copy Address",
-				onClick: () => navigator.clipboard.writeText(hook.address!),
+				onClick: () => navigator.clipboard.writeText(address),
 			});
 		}
 		actions.push({
@@ -263,7 +290,10 @@ function HooksTab() {
 									)}
 								/>
 							</span>
-							<span class="w-16 shrink-0 truncate font-mono text-muted-foreground" title={hook.id}>
+							<span
+								class="w-16 shrink-0 truncate font-mono text-muted-foreground"
+								title={hook.id}
+							>
 								{hook.id}
 							</span>
 							<span class="w-14 shrink-0">
@@ -279,25 +309,30 @@ function HooksTab() {
 								</span>
 							</span>
 							<span class="min-w-0 flex-1 flex items-center gap-1 font-mono">
-								<span class="min-w-0 truncate" title={hook.target}>{hook.target}</span>
+								<span class="min-w-0 truncate" title={hook.target}>
+									{hook.target}
+								</span>
 								<CopyButton value={hook.target} class="shrink-0" />
 							</span>
 							<span class="w-36 shrink-0 flex items-center gap-1 font-mono text-muted-foreground">
-								<Show
-									when={hook.address}
-									fallback={<span>-</span>}
-								>
-									<ActionPopover
-										type="address"
-										value={hook.address!}
-										actions={buildAddressActions(hook.address!)}
-									>
-										{formatAddress(hook.address!)}
-									</ActionPopover>
-									<CopyButton value={hook.address!} class="shrink-0" />
+								<Show when={hook.address} keyed fallback={<span>-</span>}>
+									{(address) => (
+										<>
+											<ActionPopover
+												type="address"
+												value={address}
+												actions={buildAddressActions(address)}
+											>
+												{formatAddress(address)}
+											</ActionPopover>
+											<CopyButton value={address} class="shrink-0" />
+										</>
+									)}
 								</Show>
 							</span>
-							<span class="w-12 shrink-0 text-right font-mono">{hook.hits}</span>
+							<span class="w-12 shrink-0 text-right font-mono">
+								{hook.hits}
+							</span>
 							<span class="w-20 shrink-0 flex justify-end">
 								<InlineActions
 									primary={[

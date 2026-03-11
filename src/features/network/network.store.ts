@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createDeferred, createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
 	extractEventSessionId,
@@ -27,6 +27,9 @@ const [state, setState] = createStore<NetworkState>({
 const [domainFilter, setDomainFilter] = createSignal("");
 const [methodFilter, setMethodFilter] = createSignal<string | "all">("all");
 const [statusFilter, setStatusFilter] = createSignal<number | "all">("all");
+const deferredDomainFilter = createDeferred(domainFilter);
+const deferredMethodFilter = createDeferred(methodFilter);
+const deferredStatusFilter = createDeferred(statusFilter);
 
 function addRequest(request: NetworkRequest): void {
 	setState("requests", (prev) => {
@@ -202,11 +205,11 @@ function exportHar(): string {
 	return JSON.stringify(har, null, 2);
 }
 
-const filteredRequests = () => {
+const filteredRequests = createMemo(() => {
 	let reqs = state.requests;
-	const domain = domainFilter().toLowerCase();
-	const method = methodFilter();
-	const status = statusFilter();
+	const domain = deferredDomainFilter().trim().toLowerCase();
+	const method = deferredMethodFilter();
+	const status = deferredStatusFilter();
 
 	if (domain) {
 		reqs = reqs.filter((r) => {
@@ -224,7 +227,7 @@ const filteredRequests = () => {
 		reqs = reqs.filter((r) => r.statusCode === status);
 	}
 	return reqs;
-};
+});
 
 const selectedRequest = () =>
 	state.requests.find((r) => r.id === state.selectedRequestId) ?? null;

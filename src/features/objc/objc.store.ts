@@ -1,6 +1,7 @@
-import { createSignal } from "solid-js";
+import { createDeferred, createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { addHook } from "~/features/hooks/hooks.store";
+import { scheduleTransition } from "~/lib/scheduling";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
 import type { HookInfo, ObjCMethodInfo } from "~/lib/types";
@@ -34,19 +35,20 @@ const [state, setState] = createStore<ObjCState>({
 });
 
 const [searchQuery, setSearchQuery] = createSignal("");
+const deferredSearchQuery = createDeferred(searchQuery);
 const [subTab, setSubTab] = createSignal<ObjCSubTab>("methods");
 
-const filteredClasses = () => {
+const filteredClasses = createMemo(() => {
 	let classes = state.classes;
 	if (state.appClassesOnly) {
 		classes = classes.filter(
 			(c) => !c.startsWith("NS") && !c.startsWith("UI") && !c.startsWith("_"),
 		);
 	}
-	const query = searchQuery().toLowerCase();
+	const query = deferredSearchQuery().trim().toLowerCase();
 	if (!query) return classes;
 	return classes.filter((c) => c.toLowerCase().includes(query));
-};
+});
 
 function setClasses(classes: string[]): void {
 	setState({ classes, classesLoading: false });
@@ -137,7 +139,9 @@ async function fetchObjcClasses(
 			method: "enumerateObjcClasses",
 			params: { filter },
 		});
-		setClasses(result);
+		scheduleTransition(() => {
+			setClasses(result);
+		});
 	} catch (e) {
 		setState({ classesLoading: false });
 		console.error("fetchObjcClasses error:", e);
@@ -155,7 +159,9 @@ async function fetchObjcMethods(
 			method: "getObjcMethods",
 			params: { className },
 		});
-		setMethods(result);
+		scheduleTransition(() => {
+			setMethods(result);
+		});
 	} catch (e) {
 		setState({ detailLoading: false });
 		console.error("fetchObjcMethods error:", e);
@@ -173,7 +179,9 @@ async function fetchObjcInstances(
 			method: "chooseObjcInstances",
 			params: { className, maxCount: maxCount ?? 10 },
 		});
-		setInstances(result);
+		scheduleTransition(() => {
+			setInstances(result);
+		});
 	} catch (e) {
 		console.error("fetchObjcInstances error:", e);
 	}

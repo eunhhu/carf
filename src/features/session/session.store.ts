@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
+import { scheduleTransition } from "~/lib/scheduling";
 import type { SessionInfo } from "~/lib/types";
 
 const MAX_SESSIONS = 5;
@@ -10,7 +11,10 @@ interface SessionState {
 }
 
 interface SessionLifecycleListener {
-	beforeSessionChange?: (currentSessionId: string | null, nextSessionId: string | null) => void;
+	beforeSessionChange?: (
+		currentSessionId: string | null,
+		nextSessionId: string | null,
+	) => void;
 	afterSessionChange?: (activeSessionId: string | null) => void;
 	onSessionRemoved?: (sessionId: string) => void;
 }
@@ -42,9 +46,11 @@ function addSession(session: SessionInfo): void {
 	);
 	if (existingIndex !== -1) {
 		notifyBeforeSessionChange(session.id);
-		setState("sessions", existingIndex, session);
-		setState("activeSessionId", session.id);
-		notifyAfterSessionChange();
+		scheduleTransition(() => {
+			setState("sessions", existingIndex, session);
+			setState("activeSessionId", session.id);
+			notifyAfterSessionChange();
+		});
 		return;
 	}
 
@@ -52,30 +58,36 @@ function addSession(session: SessionInfo): void {
 		return;
 	}
 	notifyBeforeSessionChange(session.id);
-	setState("sessions", (prev) => [...prev, session]);
-	setState("activeSessionId", session.id);
-	notifyAfterSessionChange();
+	scheduleTransition(() => {
+		setState("sessions", (prev) => [...prev, session]);
+		setState("activeSessionId", session.id);
+		notifyAfterSessionChange();
+	});
 }
 
 function removeSession(sessionId: string): void {
 	const remainingSessions = state.sessions.filter((s) => s.id !== sessionId);
-	const nextSessionId =
-		state.activeSessionId === sessionId ? (remainingSessions[0]?.id ?? null) : state.activeSessionId;
+	const wasActiveSession = state.activeSessionId === sessionId;
+	const nextSessionId = wasActiveSession
+		? (remainingSessions[0]?.id ?? null)
+		: state.activeSessionId;
 
-	if (state.activeSessionId === sessionId) {
+	if (wasActiveSession) {
 		notifyBeforeSessionChange(nextSessionId);
 	}
 
-	setState("sessions", remainingSessions);
+	scheduleTransition(() => {
+		setState("sessions", remainingSessions);
 
-	if (state.activeSessionId === sessionId) {
-		setState("activeSessionId", remainingSessions[0]?.id ?? null);
-		notifyAfterSessionChange();
-	}
+		if (wasActiveSession) {
+			setState("activeSessionId", nextSessionId);
+			notifyAfterSessionChange();
+		}
 
-	for (const listener of lifecycleListeners) {
-		listener.onSessionRemoved?.(sessionId);
-	}
+		for (const listener of lifecycleListeners) {
+			listener.onSessionRemoved?.(sessionId);
+		}
+	});
 
 	if (remainingSessions.length === 0) {
 		setAppView("process");
@@ -86,8 +98,10 @@ function switchSession(sessionId: string): void {
 	const exists = state.sessions.some((s) => s.id === sessionId);
 	if (exists && state.activeSessionId !== sessionId) {
 		notifyBeforeSessionChange(sessionId);
-		setState("activeSessionId", sessionId);
-		notifyAfterSessionChange();
+		scheduleTransition(() => {
+			setState("activeSessionId", sessionId);
+			notifyAfterSessionChange();
+		});
 	}
 }
 
@@ -100,9 +114,17 @@ function updateSessionStatus(
 
 // View state signal (which view is shown: device, process, or session)
 export type AppView = "device" | "process" | "session";
-const [appView, setAppView] = createSignal<AppView>("device");
+const [appView, setAppViewSignal] = createSignal<AppView>("device");
 
-function registerSessionLifecycleListener(listener: SessionLifecycleListener): () => void {
+function setAppView(view: AppView): void {
+	scheduleTransition(() => {
+		setAppViewSignal(view);
+	});
+}
+
+function registerSessionLifecycleListener(
+	listener: SessionLifecycleListener,
+): () => void {
 	lifecycleListeners.add(listener);
 	return () => {
 		lifecycleListeners.delete(listener);
