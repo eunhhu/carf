@@ -3,6 +3,10 @@ import {
 	snapshotCallgraphState,
 } from "~/features/callgraph/callgraph.store";
 import {
+	restoreAntiDetectState,
+	snapshotAntiDetectState,
+} from "~/features/antidetect/antidetect.store";
+import {
 	restoreConsoleState,
 	snapshotConsoleState,
 } from "~/features/console/console.store";
@@ -14,6 +18,10 @@ import {
 	restoreHooksState,
 	snapshotHooksState,
 } from "~/features/hooks/hooks.store";
+import {
+	restoreIl2cppState,
+	snapshotIl2cppState,
+} from "~/features/il2cpp/il2cpp.store";
 import {
 	restoreJavaState,
 	snapshotJavaState,
@@ -54,13 +62,13 @@ import {
 	registerSessionLifecycleListener,
 } from "~/features/session/session.store";
 import {
-	restoreAntiDetectState,
-	snapshotAntiDetectState,
-} from "~/features/session/antidetect.store";
-import {
 	restoreScriptState,
 	snapshotScriptState,
 } from "~/features/script/script.store";
+import {
+	restoreSwiftState,
+	snapshotSwiftState,
+} from "~/features/swift/swift.store";
 import {
 	restoreThreadState,
 	snapshotThreadState,
@@ -76,6 +84,7 @@ type SessionScopedSnapshot = {
 	console: ReturnType<typeof snapshotConsoleState>;
 	filesystem: ReturnType<typeof snapshotFilesystemState>;
 	hooks: ReturnType<typeof snapshotHooksState>;
+	il2cpp: ReturnType<typeof snapshotIl2cppState>;
 	java: ReturnType<typeof snapshotJavaState>;
 	memory: ReturnType<typeof snapshotMemoryState>;
 	monitor: ReturnType<typeof snapshotMonitorState>;
@@ -86,6 +95,7 @@ type SessionScopedSnapshot = {
 	pinboard: ReturnType<typeof snapshotPinboardState>;
 	resolver: ReturnType<typeof snapshotResolverState>;
 	script: ReturnType<typeof snapshotScriptState>;
+	swift: ReturnType<typeof snapshotSwiftState>;
 	thread: ReturnType<typeof snapshotThreadState>;
 	antiDetect: ReturnType<typeof snapshotAntiDetectState>;
 };
@@ -99,6 +109,7 @@ function captureCurrentSessionSnapshot(): SessionScopedSnapshot {
 		console: snapshotConsoleState(),
 		filesystem: snapshotFilesystemState(),
 		hooks: snapshotHooksState(),
+		il2cpp: snapshotIl2cppState(),
 		java: snapshotJavaState(),
 		memory: snapshotMemoryState(),
 		monitor: snapshotMonitorState(),
@@ -109,6 +120,7 @@ function captureCurrentSessionSnapshot(): SessionScopedSnapshot {
 		pinboard: snapshotPinboardState(),
 		resolver: snapshotResolverState(),
 		script: snapshotScriptState(),
+		swift: snapshotSwiftState(),
 		thread: snapshotThreadState(),
 		antiDetect: snapshotAntiDetectState(),
 	};
@@ -120,6 +132,7 @@ function restoreSessionSnapshot(snapshot?: SessionScopedSnapshot): void {
 	restoreConsoleState(snapshot?.console);
 	restoreFilesystemState(snapshot?.filesystem);
 	restoreHooksState(snapshot?.hooks);
+	restoreIl2cppState(snapshot?.il2cpp);
 	restoreJavaState(snapshot?.java);
 	restoreMemoryState(snapshot?.memory);
 	restoreMonitorState(snapshot?.monitor);
@@ -130,6 +143,7 @@ function restoreSessionSnapshot(snapshot?: SessionScopedSnapshot): void {
 	restorePinboardState(snapshot?.pinboard);
 	restoreResolverState(snapshot?.resolver);
 	restoreScriptState(snapshot?.script);
+	restoreSwiftState(snapshot?.swift);
 	restoreThreadState(snapshot?.thread);
 	restoreAntiDetectState(snapshot?.antiDetect);
 }

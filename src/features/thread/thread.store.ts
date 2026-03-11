@@ -1,5 +1,5 @@
-import { createStore } from "solid-js/store";
 import { createSignal } from "solid-js";
+import { createStore } from "solid-js/store";
 import type { ThreadInfo, BacktraceFrame, StalkerEvent } from "~/lib/types";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke, listen } from "~/lib/tauri";
@@ -26,28 +26,39 @@ interface StartStalkerResult {
 }
 
 interface ThreadState {
-  threads: ThreadInfo[];
   loading: boolean;
   selectedThreadId: number | null;
-  backtrace: BacktraceFrame[];
   backtraceLoading: boolean;
-  context: ThreadContext | null;
   contextLoading: boolean;
   stalkerActive: boolean;
+}
+
+interface ThreadSnapshotState extends ThreadState {
+  threads: ThreadInfo[];
+  backtrace: BacktraceFrame[];
+  context: ThreadContext | null;
   stalkerEvents: StalkerEvent[];
 }
 
+type ThreadViewState = ThreadState & {
+  threads: ThreadInfo[];
+  backtrace: BacktraceFrame[];
+  context: ThreadContext | null;
+  stalkerEvents: StalkerEvent[];
+};
+
 const DEFAULT_STATE: ThreadState = {
-  threads: [],
   loading: false,
   selectedThreadId: null,
-  backtrace: [],
   backtraceLoading: false,
-  context: null,
   contextLoading: false,
   stalkerActive: false,
-  stalkerEvents: [],
 };
+
+const [threads, setThreadsSignal] = createSignal<ThreadInfo[]>([]);
+const [backtrace, setBacktraceSignal] = createSignal<BacktraceFrame[]>([]);
+const [threadContext, setThreadContext] = createSignal<ThreadContext | null>(null);
+const [stalkerEvents, setStalkerEvents] = createSignal<StalkerEvent[]>([]);
 
 const [state, setState] = createStore<ThreadState>({
   ...DEFAULT_STATE,
@@ -57,21 +68,23 @@ const [refreshInterval, setRefreshInterval] = createSignal<RefreshInterval>(0);
 const [subTab, setSubTab] = createSignal<ThreadSubTab>("backtrace");
 
 function setThreads(threads: ThreadInfo[]): void {
-  setState({ threads, loading: false });
+  setThreadsSignal(threads);
+  setState({ loading: false });
 }
 
 function selectThread(threadId: number | null): void {
+  setBacktraceSignal([]);
+  setThreadContext(null);
   setState({
     selectedThreadId: threadId,
-    backtrace: [],
     backtraceLoading: false,
-    context: null,
     contextLoading: false,
   });
 }
 
 function setBacktrace(frames: BacktraceFrame[]): void {
-  setState({ backtrace: frames, backtraceLoading: false });
+  setBacktraceSignal(frames);
+  setState({ backtraceLoading: false });
 }
 
 function setLoading(loading: boolean): void {
@@ -84,24 +97,34 @@ function setBacktraceLoading(loading: boolean): void {
 
 function resetThreadState(): void {
   setState(restoreStore(DEFAULT_STATE));
+  setThreadsSignal([]);
+  setBacktraceSignal([]);
+  setThreadContext(null);
+  setStalkerEvents([]);
   setRefreshInterval(0);
   setSubTab("backtrace");
 }
 
 function snapshotThreadState(): {
-  state: ThreadState;
+  state: ThreadSnapshotState;
   refreshInterval: RefreshInterval;
   subTab: ThreadSubTab;
 } {
   return {
-    state: snapshotStore(state),
+    state: {
+      ...snapshotStore(state),
+      threads: threads(),
+      backtrace: backtrace(),
+      context: threadContext(),
+      stalkerEvents: stalkerEvents(),
+    },
     refreshInterval: refreshInterval(),
     subTab: subTab(),
   };
 }
 
 function restoreThreadState(snapshot?: {
-  state: ThreadState;
+  state: ThreadSnapshotState;
   refreshInterval: RefreshInterval;
   subTab: ThreadSubTab;
 }): void {
@@ -110,16 +133,26 @@ function restoreThreadState(snapshot?: {
     return;
   }
 
-  setState(restoreStore(snapshot.state));
+  setState(restoreStore({
+    loading: snapshot.state.loading,
+    selectedThreadId: snapshot.state.selectedThreadId,
+    backtraceLoading: snapshot.state.backtraceLoading,
+    contextLoading: snapshot.state.contextLoading,
+    stalkerActive: snapshot.state.stalkerActive,
+  }));
+  setThreadsSignal(snapshot.state.threads);
+  setBacktraceSignal(snapshot.state.backtrace);
+  setThreadContext(snapshot.state.context);
+  setStalkerEvents(snapshot.state.stalkerEvents);
   setRefreshInterval(snapshot.refreshInterval);
   setSubTab(snapshot.subTab);
 }
 
 const selectedThread = () =>
-  state.threads.find((t) => t.id === state.selectedThreadId) ?? null;
+  threads().find((t) => t.id === state.selectedThreadId) ?? null;
 
 const threadsByState = (threadState: ThreadInfo["state"]) =>
-  state.threads.filter((t) => t.state === threadState);
+  threads().filter((t) => t.state === threadState);
 
 async function fetchThreads(sessionId: string): Promise<void> {
   setLoading(true);
@@ -140,7 +173,8 @@ async function fetchBacktrace(
   sessionId: string,
   threadId: number,
 ): Promise<void> {
-  setState({ backtrace: [], backtraceLoading: true });
+  setBacktraceSignal([]);
+  setState({ backtraceLoading: true });
   try {
     const result = await invoke<BacktraceFrame[]>("rpc_call", {
       sessionId,
@@ -149,7 +183,8 @@ async function fetchBacktrace(
     });
     setBacktrace(result);
   } catch (err) {
-    setState({ backtrace: [], backtraceLoading: false });
+    setBacktraceSignal([]);
+    setState({ backtraceLoading: false });
     console.error("fetchBacktrace error:", err);
   }
 }
@@ -158,16 +193,19 @@ async function fetchContext(
   sessionId: string,
   threadId: number,
 ): Promise<void> {
-  setState({ context: null, contextLoading: true });
+  setThreadContext(null);
+  setState({ contextLoading: true });
   try {
     const result = await invoke<ThreadContext>("rpc_call", {
       sessionId,
       method: "getThreadContext",
       params: { threadId },
     });
-    setState({ context: result, contextLoading: false });
+    setThreadContext(result);
+    setState({ contextLoading: false });
   } catch (err) {
-    setState({ context: null, contextLoading: false });
+    setThreadContext(null);
+    setState({ contextLoading: false });
     console.error("fetchContext error:", err);
   }
 }
@@ -191,7 +229,7 @@ function appendStalkerEvents(threadId: number, events: StalkerEvent[]): void {
     return;
   }
 
-  setState("stalkerEvents", (prev) => [...prev, ...matching]);
+  setStalkerEvents((prev) => [...prev, ...matching]);
 }
 
 async function fetchStalkerEvents(
@@ -232,7 +270,8 @@ async function startStalker(
   sessionId: string,
   threadId: number,
 ): Promise<void> {
-  setState({ stalkerActive: false, stalkerEvents: [] });
+  setStalkerEvents([]);
+  setState({ stalkerActive: false });
   clearStalkerTracking();
 
   stalkerUnlisten = listen<unknown>("carf://stalker/event", (payload) => {
@@ -286,8 +325,42 @@ async function stopStalker(
   }
 }
 
+const threadState: ThreadViewState = {
+  get threads() {
+    return threads();
+  },
+  get loading() {
+    return state.loading;
+  },
+  get selectedThreadId() {
+    return state.selectedThreadId;
+  },
+  get backtrace() {
+    return backtrace();
+  },
+  get backtraceLoading() {
+    return state.backtraceLoading;
+  },
+  get context() {
+    return threadContext();
+  },
+  get contextLoading() {
+    return state.contextLoading;
+  },
+  get stalkerActive() {
+    return state.stalkerActive;
+  },
+  get stalkerEvents() {
+    return stalkerEvents();
+  },
+};
+
 export {
-  state as threadState,
+  threads,
+  backtrace,
+  threadContext,
+  stalkerEvents,
+  threadState,
   setThreads,
   selectThread,
   setBacktrace,

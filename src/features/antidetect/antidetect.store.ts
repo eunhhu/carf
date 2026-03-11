@@ -4,6 +4,22 @@ import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
 import type { BypassResult, CloakStatus } from "~/lib/types";
 
+interface RawCloakStatus {
+	available?: boolean;
+	threads?: number[];
+	ranges?: Array<{ base: string; size: number }>;
+	cloakedThreads?: number[];
+	cloakedRanges?: Array<{ base: string; size: number }>;
+}
+
+interface RawBypassResult {
+	active?: boolean;
+	hooksInstalled?: number;
+	message?: string;
+	details?: string[];
+	type?: BypassResult["type"];
+}
+
 interface AntiDetectState {
 	cloakStatus: CloakStatus | null;
 	statusLoading: boolean;
@@ -42,16 +58,39 @@ function restoreAntiDetectState(snapshot?: { state: AntiDetectState }): void {
 	setState(restoreStore(snapshot.state));
 }
 
+function normalizeCloakStatus(result: RawCloakStatus): CloakStatus {
+	return {
+		cloakedThreads: result.cloakedThreads ?? result.threads ?? [],
+		cloakedRanges: result.cloakedRanges ?? result.ranges ?? [],
+	};
+}
+
+function normalizeBypassResult(
+	type: BypassResult["type"],
+	result: RawBypassResult,
+): BypassResult {
+	return {
+		type: result.type ?? type,
+		hooksInstalled: result.hooksInstalled ?? 0,
+		details:
+			result.details ??
+			(result.message ? [result.message] : []),
+	};
+}
+
 async function fetchCloakStatus(sessionId: string): Promise<void> {
 	setState("statusLoading", true);
 	try {
-		const result = await invoke<CloakStatus>("rpc_call", {
+		const result = await invoke<RawCloakStatus>("rpc_call", {
 			sessionId,
 			method: "getCloakStatus",
 			params: {},
 		});
 		if (activeSession()?.id !== sessionId) return;
-		setState({ cloakStatus: result, statusLoading: false });
+		setState({
+			cloakStatus: normalizeCloakStatus(result),
+			statusLoading: false,
+		});
 	} catch (e) {
 		setState("statusLoading", false);
 		console.error("fetchCloakStatus error:", e);
@@ -135,13 +174,16 @@ async function uncloakRange(
 async function bypassSslPinning(sessionId: string): Promise<void> {
 	setState("sslBypassing", true);
 	try {
-		const result = await invoke<BypassResult>("rpc_call", {
+		const result = await invoke<RawBypassResult>("rpc_call", {
 			sessionId,
 			method: "bypassSslPinning",
 			params: {},
 		});
 		if (activeSession()?.id !== sessionId) return;
-		setState({ sslBypass: result, sslBypassing: false });
+		setState({
+			sslBypass: normalizeBypassResult("ssl-pinning", result),
+			sslBypassing: false,
+		});
 	} catch (e) {
 		setState("sslBypassing", false);
 		console.error("bypassSslPinning error:", e);
@@ -151,13 +193,16 @@ async function bypassSslPinning(sessionId: string): Promise<void> {
 async function bypassRootDetection(sessionId: string): Promise<void> {
 	setState("rootBypassing", true);
 	try {
-		const result = await invoke<BypassResult>("rpc_call", {
+		const result = await invoke<RawBypassResult>("rpc_call", {
 			sessionId,
 			method: "bypassRootDetection",
 			params: {},
 		});
 		if (activeSession()?.id !== sessionId) return;
-		setState({ rootBypass: result, rootBypassing: false });
+		setState({
+			rootBypass: normalizeBypassResult("root-detection", result),
+			rootBypassing: false,
+		});
 	} catch (e) {
 		setState("rootBypassing", false);
 		console.error("bypassRootDetection error:", e);

@@ -1,6 +1,9 @@
 import { For, Show, Switch, Match, onMount } from "solid-js";
 import {
   moduleState,
+  moduleExports,
+  moduleImports,
+  moduleSymbols,
   filteredModules,
   moduleSearchQuery,
   setModuleSearchQuery,
@@ -19,6 +22,7 @@ import { formatAddress, formatSize } from "~/lib/format";
 import { consumeNavigationContext } from "~/lib/navigation";
 import { SplitPane } from "~/components/SplitPane";
 import { CopyButton } from "~/components/CopyButton";
+import { VirtualList } from "~/components/VirtualList";
 import {
   ActionPopover,
   buildAddressActions,
@@ -56,45 +60,54 @@ function ModulesTab() {
   }
 
   const moduleList = (
-    <div class="h-full overflow-auto">
-      <Show
-        when={!moduleState.loading}
-        fallback={
+    <Show
+      when={!moduleState.loading}
+      fallback={
+        <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
+          Loading modules...
+        </div>
+      }
+    >
+      <VirtualList
+        items={filteredModules()}
+        itemHeight={34}
+        resetKey={moduleSearchQuery()}
+        class="h-full overflow-auto"
+        empty={
           <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
-            Loading modules...
+            No modules loaded
           </div>
         }
       >
-        <For each={filteredModules()}>
-          {(mod) => {
-            const isSelected = () =>
-              moduleState.selectedModule === mod.name;
-            return (
-              <div
-                class={cn(
-                  "group/row flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-surface-hover cursor-pointer",
-                  isSelected() && "bg-muted",
-                )}
-                onClick={() => handleSelectModule(mod.name)}
+        {(mod) => {
+          const isSelected = () => moduleState.selectedModule === mod.name;
+          return (
+            <div
+              class={cn(
+                "group/row flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-surface-hover",
+                isSelected() && "bg-muted",
+              )}
+              onClick={() => handleSelectModule(mod.name)}
+            >
+              <ActionPopover
+                type="address"
+                value={mod.base}
+                actions={buildAddressActions(mod.base, mod.name)}
               >
-                <ActionPopover
-                  type="address"
-                  value={mod.base}
-                  actions={buildAddressActions(mod.base, mod.name)}
-                >
-                  {formatAddress(mod.base)}
-                </ActionPopover>
-                <span class="min-w-0 flex-1 truncate" title={mod.name}>{mod.name}</span>
-                <span class="shrink-0 text-muted-foreground">
-                  {formatSize(mod.size)}
-                </span>
-                <CopyButton value={mod.base} />
-              </div>
-            );
-          }}
-        </For>
-      </Show>
-    </div>
+                {formatAddress(mod.base)}
+              </ActionPopover>
+              <span class="min-w-0 flex-1 truncate" title={mod.name}>
+                {mod.name}
+              </span>
+              <span class="shrink-0 text-muted-foreground">
+                {formatSize(mod.size)}
+              </span>
+              <CopyButton value={mod.base} />
+            </div>
+          );
+        }}
+      </VirtualList>
+    </Show>
   );
 
   const moduleDetail = (
@@ -152,22 +165,22 @@ function ModulesTab() {
                         setModuleSubTab(tab);
                         const session = activeSession();
                         if (!session || !moduleState.selectedModule) return;
-                        if (tab === "imports" && moduleState.imports.length === 0) {
+                        if (tab === "imports" && moduleImports().length === 0) {
                           fetchModuleImports(session.id, moduleState.selectedModule);
-                        } else if (tab === "symbols" && moduleState.symbols.length === 0) {
+                        } else if (tab === "symbols" && moduleSymbols().length === 0) {
                           fetchModuleSymbols(session.id, moduleState.selectedModule);
                         }
                       }}
                     >
                       {tab}
-                      <Show when={tab === "exports" && moduleState.exports.length > 0}>
-                        <span class="ml-1 text-[10px] text-muted-foreground">({moduleState.exports.length})</span>
+                      <Show when={tab === "exports" && moduleExports().length > 0}>
+                        <span class="ml-1 text-[10px] text-muted-foreground">({moduleExports().length})</span>
                       </Show>
-                      <Show when={tab === "imports" && moduleState.imports.length > 0}>
-                        <span class="ml-1 text-[10px] text-muted-foreground">({moduleState.imports.length})</span>
+                      <Show when={tab === "imports" && moduleImports().length > 0}>
+                        <span class="ml-1 text-[10px] text-muted-foreground">({moduleImports().length})</span>
                       </Show>
-                      <Show when={tab === "symbols" && moduleState.symbols.length > 0}>
-                        <span class="ml-1 text-[10px] text-muted-foreground">({moduleState.symbols.length})</span>
+                      <Show when={tab === "symbols" && moduleSymbols().length > 0}>
+                        <span class="ml-1 text-[10px] text-muted-foreground">({moduleSymbols().length})</span>
                       </Show>
                     </button>
                   )}
@@ -182,7 +195,7 @@ function ModulesTab() {
                       when={!moduleState.exportsLoading}
                       fallback={<div class="py-4 text-center text-xs text-muted-foreground">Loading exports...</div>}
                     >
-                      <For each={moduleState.exports}>
+                      <For each={moduleExports()}>
                         {(exp) => (
                           <div class="group/row flex items-center gap-2 rounded px-1 py-0.5 text-xs transition-colors hover:bg-surface-hover">
                             <ActionPopover
@@ -227,7 +240,7 @@ function ModulesTab() {
                           </div>
                         )}
                       </For>
-                      <Show when={moduleState.exports.length === 0}>
+                      <Show when={moduleExports().length === 0}>
                         <div class="py-4 text-center text-xs text-muted-foreground">No exports loaded</div>
                       </Show>
                     </Show>
@@ -239,7 +252,7 @@ function ModulesTab() {
                       when={!moduleState.importsLoading}
                       fallback={<div class="py-4 text-center text-xs text-muted-foreground">Loading imports...</div>}
                     >
-                      <For each={moduleState.imports}>
+                      <For each={moduleImports()}>
                         {(imp) => (
                           <div class="group/row flex items-center gap-2 rounded px-1 py-0.5 text-xs transition-colors hover:bg-surface-hover">
                             <Show
@@ -286,7 +299,7 @@ function ModulesTab() {
                           </div>
                         )}
                       </For>
-                      <Show when={moduleState.imports.length === 0}>
+                      <Show when={moduleImports().length === 0}>
                         <div class="py-4 text-center text-xs text-muted-foreground">No imports loaded</div>
                       </Show>
                     </Show>
@@ -298,7 +311,7 @@ function ModulesTab() {
                       when={!moduleState.symbolsLoading}
                       fallback={<div class="py-4 text-center text-xs text-muted-foreground">Loading symbols...</div>}
                     >
-                      <For each={moduleState.symbols}>
+                      <For each={moduleSymbols()}>
                         {(sym) => (
                           <div class="group/row flex items-center gap-2 rounded px-1 py-0.5 text-xs transition-colors hover:bg-surface-hover">
                             <ActionPopover
@@ -342,7 +355,7 @@ function ModulesTab() {
                           </div>
                         )}
                       </For>
-                      <Show when={moduleState.symbols.length === 0}>
+                      <Show when={moduleSymbols().length === 0}>
                         <div class="py-4 text-center text-xs text-muted-foreground">No symbols loaded</div>
                       </Show>
                     </Show>

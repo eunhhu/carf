@@ -16,8 +16,8 @@ use super::script::HostScriptHandler;
 use super::types::{AppInfo, AttachOptions, DeviceInfo, ProcessInfo, SpawnOptions};
 use super::util::{
     get_device_arch, new_session_id, now_millis, parse_script_runtime, parse_spawn_stdio,
-    pause_process, project_root, resolve_attach_target, resume_process, serialize_device,
-    unwrap_rpc_result,
+    pause_process_for_device, project_root, resolve_attach_target, resume_process_for_device,
+    serialize_device, unwrap_rpc_result,
 };
 
 const FRIDA_ACTOR_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -31,10 +31,21 @@ struct ActorHandle {
 }
 
 impl ActorHandle {
-    fn new(events: EventHub) -> Self {
+    fn new(events: EventHub) -> Result<Self, AppError> {
         let (sender, receiver) = mpsc::channel::<ActorTask>();
+        let (init_tx, init_rx) = mpsc::sync_channel::<Result<(), AppError>>(1);
+
         let worker = thread::spawn(move || {
-            let mut actor = FridaActor::new(events);
+            let mut actor = match FridaActor::new(events) {
+                Ok(actor) => {
+                    let _ = init_tx.send(Ok(()));
+                    actor
+                }
+                Err(e) => {
+                    let _ = init_tx.send(Err(e));
+                    return;
+                }
+            };
 
             loop {
                 actor.pump();
@@ -47,10 +58,21 @@ impl ActorHandle {
             }
         });
 
-        Self {
+        // Wait for the actor thread to report initialization success or failure.
+        let init_result = init_rx.recv().map_err(|_| {
+            AppError::Internal("Frida actor thread exited during initialization".to_string())
+        })?;
+
+        if let Err(e) = init_result {
+            // Join the worker since the actor failed to initialize.
+            let _ = worker.join();
+            return Err(e);
+        }
+
+        Ok(Self {
             sender: Some(sender),
             worker: Some(worker),
-        }
+        })
     }
 
     fn request<T, F>(&self, operation: F) -> Result<T, AppError>
@@ -93,10 +115,10 @@ pub struct FridaService {
 }
 
 impl FridaService {
-    pub fn new(events: EventHub) -> Self {
-        Self {
-            actor: ActorHandle::new(events),
-        }
+    pub fn new(events: EventHub) -> Result<Self, AppError> {
+        Ok(Self {
+            actor: ActorHandle::new(events)?,
+        })
     }
 
     pub fn list_devices(&mut self) -> Result<Vec<DeviceInfo>, AppError> {
@@ -309,14 +331,15 @@ fn take_gerror_message(error: *mut frida_sys::GError) -> String {
 }
 
 impl FridaActor {
-    fn new(events: EventHub) -> Self {
+    fn new(events: EventHub) -> Result<Self, AppError> {
         let frida = Box::leak(Box::new(unsafe { Frida::obtain() }));
-        let device_manager =
-            OwnedDeviceManager::new(frida, &[]).expect("failed to create Frida device manager");
+        let device_manager = OwnedDeviceManager::new(frida, &[]).map_err(|e| {
+            AppError::Internal(format!("Failed to initialize Frida device manager: {e}"))
+        })?;
         let (script_events_tx, script_events_rx) = mpsc::channel();
         let main_context_pump = MainContextPump::start();
 
-        Self {
+        Ok(Self {
             frida,
             device_manager,
             remote_addresses: Vec::new(),
@@ -326,7 +349,7 @@ impl FridaActor {
             _main_context_pump: main_context_pump,
             sessions: HashMap::new(),
             agent_source: None,
-        }
+        })
     }
 
     fn pump(&mut self) {
@@ -563,7 +586,12 @@ impl FridaActor {
     fn attach(&mut self, device_id: &str, options: AttachOptions) -> Result<SessionInfo, AppError> {
         let device = self.get_device(device_id)?;
         let (pid, process_name, identifier) =
-            resolve_attach_target(device.as_ref(), frida_device_ptr(device.as_ref()), &options.target)?;
+            resolve_attach_target(
+                device_id,
+                device.as_ref(),
+                frida_device_ptr(device.as_ref()),
+                &options.target,
+            )?;
         let session_options = SessionOptionsHandle::from_attach_options(&options)?;
         let mut error = std::ptr::null_mut();
         let raw_session = unsafe {
@@ -640,7 +668,9 @@ impl FridaActor {
         match pause_mode {
             Some(PauseMode::FridaSpawn) => {
                 let (device_id, pid) = {
-                    let bundle = self.sessions.get(session_id).expect("session exists");
+                    let bundle = self.sessions.get(session_id).ok_or_else(|| {
+                        AppError::SessionNotFound(format!("Session not found: {session_id}"))
+                    })?;
                     let pid = bundle.spawned_pid.unwrap_or(bundle.info.pid);
                     (bundle.info.device_id.clone(), pid)
                 };
@@ -651,13 +681,13 @@ impl FridaActor {
                     .map_err(|error| AppError::Internal(error.to_string()))?;
             }
             Some(PauseMode::SignalStop) => {
-                let pid = self
-                    .sessions
-                    .get(session_id)
-                    .expect("session exists")
-                    .info
-                    .pid;
-                resume_process(pid)?;
+                let (device_id, pid) = {
+                    let bundle = self.sessions.get(session_id).ok_or_else(|| {
+                        AppError::SessionNotFound(format!("Session not found: {session_id}"))
+                    })?;
+                    (bundle.info.device_id.clone(), bundle.info.pid)
+                };
+                resume_process_for_device(&device_id, pid)?;
             }
             None => return Ok(()),
         }
@@ -720,13 +750,7 @@ impl FridaActor {
             .get_mut(session_id)
             .ok_or_else(|| AppError::SessionNotFound(format!("Session not found: {session_id}")))?;
 
-        if bundle.info.device_id != "local" {
-            return Err(AppError::AgentRpcError(
-                "pause is only supported for local processes in this build".to_string(),
-            ));
-        }
-
-        pause_process(bundle.info.pid)?;
+        pause_process_for_device(&bundle.info.device_id, bundle.info.pid)?;
         bundle.pause_mode = Some(PauseMode::SignalStop);
         bundle.info.status = SessionStatus::Paused;
         Ok(())

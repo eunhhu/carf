@@ -480,6 +480,41 @@ function createApplications(): Record<string, AppInfo[]> {
 	};
 }
 
+function normalizeListQuery(query: unknown): string | undefined {
+	const value = typeof query === "string" ? query.trim().toLowerCase() : "";
+	return value.length > 0 ? value : undefined;
+}
+
+function normalizeListLimit(limit: unknown): number {
+	const value = typeof limit === "number" ? limit : Number(limit ?? 200);
+	if (!Number.isFinite(value)) {
+		return 200;
+	}
+
+	return Math.max(1, Math.min(500, Math.trunc(value)));
+}
+
+function buildCollectionPage<T>(
+	items: T[],
+	limit: number,
+	query?: string,
+): {
+	items: T[];
+	total: number;
+	limit: number;
+	truncated: boolean;
+	query: string | null;
+} {
+	const total = items.length;
+	return {
+		items: items.slice(0, limit),
+		total,
+		limit,
+		truncated: total > limit,
+		query: query ?? null,
+	};
+}
+
 function clone<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -861,11 +896,37 @@ export async function mockInvoke<T>(
 		}
 		case "list_processes": {
 			const deviceId = String(args?.deviceId ?? DEFAULT_DEVICE_ID);
-			return clone(runtimeState.processes[deviceId] ?? []) as T;
+			const query = normalizeListQuery(args?.query);
+			const limit = normalizeListLimit(args?.limit);
+			const items = (runtimeState.processes[deviceId] ?? []).filter((item) => {
+				if (!query) {
+					return true;
+				}
+
+				return (
+					item.name.toLowerCase().includes(query) ||
+					String(item.pid).includes(query) ||
+					(item.identifier?.toLowerCase().includes(query) ?? false)
+				);
+			});
+			return clone(buildCollectionPage(items, limit, query)) as T;
 		}
 		case "list_applications": {
 			const deviceId = String(args?.deviceId ?? DEFAULT_DEVICE_ID);
-			return clone(runtimeState.applications[deviceId] ?? []) as T;
+			const query = normalizeListQuery(args?.query);
+			const limit = normalizeListLimit(args?.limit);
+			const items = (runtimeState.applications[deviceId] ?? []).filter((item) => {
+				if (!query) {
+					return true;
+				}
+
+				return (
+					item.name.toLowerCase().includes(query) ||
+					item.identifier.toLowerCase().includes(query) ||
+					(item.pid != null && String(item.pid).includes(query))
+				);
+			});
+			return clone(buildCollectionPage(items, limit, query)) as T;
 		}
 		case "kill_process": {
 			const deviceId = String(args?.deviceId ?? DEFAULT_DEVICE_ID);

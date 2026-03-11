@@ -2,10 +2,233 @@ use serde_json::Value;
 
 use crate::error::AppError;
 use crate::services::frida::{
-    AppInfo, AttachOptions, DeviceInfo, OsPlatform, ProcessInfo, SpawnOptions,
+    AppInfo, AttachOptions, CollectionPage, DeviceInfo, OsPlatform, ProcessInfo, SpawnOptions,
 };
 use crate::services::session_manager::SessionInfo;
 use crate::state::AppState;
+
+const DEFAULT_LIST_LIMIT: usize = 200;
+const MAX_LIST_LIMIT: usize = 500;
+
+fn normalize_query(query: Option<String>) -> Option<String> {
+    query.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_ascii_lowercase())
+        }
+    })
+}
+
+fn normalize_limit(limit: Option<usize>) -> usize {
+    limit.unwrap_or(DEFAULT_LIST_LIMIT).clamp(1, MAX_LIST_LIMIT)
+}
+
+fn build_collection_page<T, F>(
+    items: &[T],
+    limit: usize,
+    query: Option<String>,
+    matches: F,
+) -> CollectionPage<T>
+where
+    T: Clone,
+    F: Fn(&T) -> bool,
+{
+    let mut page = Vec::with_capacity(items.len().min(limit));
+    let mut total = 0;
+
+    for item in items {
+        if !matches(item) {
+            continue;
+        }
+
+        total += 1;
+        if page.len() < limit {
+            page.push(item.clone());
+        }
+    }
+
+    CollectionPage {
+        items: page,
+        total,
+        limit,
+        truncated: total > limit,
+        query,
+    }
+}
+
+fn process_matches(process: &ProcessInfo, query: &str) -> bool {
+    process.name.to_ascii_lowercase().contains(query)
+        || process.pid.to_string().contains(query)
+        || process
+            .identifier
+            .as_ref()
+            .map(|identifier| identifier.to_ascii_lowercase().contains(query))
+            .unwrap_or(false)
+}
+
+fn app_matches(app: &AppInfo, query: &str) -> bool {
+    app.name.to_ascii_lowercase().contains(query)
+        || app.identifier.to_ascii_lowercase().contains(query)
+        || app
+            .pid
+            .map(|pid| pid.to_string().contains(query))
+            .unwrap_or(false)
+}
+
+fn process_identifier(process: &ProcessInfo) -> Option<&str> {
+    process.identifier.as_deref().or_else(|| {
+        if process.name.contains('.') {
+            Some(process.name.as_str())
+        } else {
+            None
+        }
+    })
+}
+
+fn sort_applications(apps: &mut [AppInfo]) {
+    apps.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then(left.identifier.cmp(&right.identifier))
+    });
+}
+
+fn merge_running_pids(apps: &mut [AppInfo], processes: &[ProcessInfo]) {
+    use std::collections::HashMap;
+
+    let pid_by_identifier = processes
+        .iter()
+        .filter_map(|process| process_identifier(process).map(|identifier| (identifier, process.pid)))
+        .collect::<HashMap<_, _>>();
+
+    for app in apps {
+        if app.pid.is_none() {
+            app.pid = pid_by_identifier.get(app.identifier.as_str()).copied();
+        }
+    }
+}
+
+fn load_processes(
+    state: &AppState,
+    device_id: &str,
+    force_refresh: bool,
+) -> Result<Vec<ProcessInfo>, AppError> {
+    if !force_refresh {
+        if let Some(processes) = state
+            .list_cache
+            .lock()
+            .map_err(|_| AppError::Internal("list_cache lock poisoned".to_string()))?
+            .get_processes(device_id)
+        {
+            return Ok(processes);
+        }
+    }
+
+    let mut processes = state
+        .frida_service
+        .lock()
+        .map_err(|_| AppError::Internal("frida_service lock poisoned".to_string()))?
+        .list_processes(device_id)?;
+
+    processes.sort_by(|left, right| left.name.cmp(&right.name).then(left.pid.cmp(&right.pid)));
+
+    state
+        .list_cache
+        .lock()
+        .map_err(|_| AppError::Internal("list_cache lock poisoned".to_string()))?
+        .set_processes(device_id.to_string(), processes.clone());
+
+    Ok(processes)
+}
+
+fn load_applications(
+    state: &AppState,
+    device_id: &str,
+    force_refresh: bool,
+) -> Result<Vec<AppInfo>, AppError> {
+    if !force_refresh {
+        if let Some(applications) = state
+            .list_cache
+            .lock()
+            .map_err(|_| AppError::Internal("list_cache lock poisoned".to_string()))?
+            .get_applications(device_id)
+        {
+            return Ok(applications);
+        }
+    }
+
+    let (device, mut frida_apps) = {
+        let mut svc = state
+            .frida_service
+            .lock()
+            .map_err(|_| AppError::Internal("frida_service lock poisoned".to_string()))?;
+        let frida_apps = match svc.list_applications(device_id) {
+            Ok(apps) => apps,
+            Err(AppError::Internal(_)) => Vec::new(),
+            Err(error) => return Err(error),
+        };
+        (svc.get_device_info(device_id)?, frida_apps)
+    };
+
+    if !frida_apps.is_empty() {
+        if frida_apps.iter().any(|app| app.pid.is_none()) {
+            if let Ok(processes) = load_processes(state, device_id, force_refresh) {
+                merge_running_pids(&mut frida_apps, &processes);
+            }
+        }
+
+        sort_applications(&mut frida_apps);
+        state
+            .list_cache
+            .lock()
+            .map_err(|_| AppError::Internal("list_cache lock poisoned".to_string()))?
+            .set_applications(device_id.to_string(), frida_apps.clone());
+
+        return Ok(frida_apps);
+    }
+
+    let processes = load_processes(state, device_id, force_refresh)?;
+    let mut applications = if matches!(
+        device.os.as_ref().map(|os| &os.platform),
+        Some(OsPlatform::Android)
+    ) {
+        let adb_apps = state
+            .adb_service
+            .lock()
+            .map_err(|_| AppError::Internal("adb_service lock poisoned".to_string()))?
+            .list_applications(device_id, &processes);
+
+        match adb_apps {
+            Ok(apps) => merge_app_lists(&frida_apps, &apps),
+            Err(AppError::AdbNotFound)
+            | Err(AppError::AdbDeviceNotFound(_))
+            | Err(AppError::AdbError(_)) => {
+                if frida_apps.is_empty() {
+                    processes_to_apps(&processes)
+                } else {
+                    frida_apps
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    } else if frida_apps.is_empty() {
+        processes_to_apps(&processes)
+    } else {
+        frida_apps
+    };
+
+    sort_applications(&mut applications);
+
+    state
+        .list_cache
+        .lock()
+        .map_err(|_| AppError::Internal("list_cache lock poisoned".to_string()))?
+        .set_applications(device_id.to_string(), applications.clone());
+
+    Ok(applications)
+}
 
 pub fn list_devices(state: &AppState) -> Result<Vec<DeviceInfo>, AppError> {
     let mut svc = state
@@ -52,56 +275,41 @@ pub fn get_device_info(state: &AppState, device_id: String) -> Result<DeviceInfo
 pub fn list_processes(
     state: &AppState,
     device_id: String,
-) -> Result<Vec<crate::services::frida::ProcessInfo>, AppError> {
-    let mut svc = state
-        .frida_service
-        .lock()
-        .map_err(|_| AppError::Internal("frida_service lock poisoned".to_string()))?;
-    svc.list_processes(&device_id)
+    query: Option<String>,
+    limit: Option<usize>,
+    force_refresh: Option<bool>,
+) -> Result<CollectionPage<ProcessInfo>, AppError> {
+    let query = normalize_query(query);
+    let limit = normalize_limit(limit);
+    let query_filter = query.clone();
+    let processes = load_processes(state, &device_id, force_refresh.unwrap_or(false))?;
+
+    Ok(build_collection_page(&processes, limit, query, |process| {
+        query_filter
+            .as_deref()
+            .map(|value| process_matches(process, value))
+            .unwrap_or(true)
+    }))
 }
 
 pub fn list_applications(
     state: &AppState,
     device_id: String,
-) -> Result<Vec<crate::services::frida::AppInfo>, AppError> {
-    let (device, processes, frida_apps) = {
-        let mut svc = state
-            .frida_service
-            .lock()
-            .map_err(|_| AppError::Internal("frida_service lock poisoned".to_string()))?;
-        let frida_apps = match svc.list_applications(&device_id) {
-            Ok(apps) => apps,
-            Err(AppError::Internal(_)) => Vec::new(),
-            Err(error) => return Err(error),
-        };
-        (
-            svc.get_device_info(&device_id)?,
-            svc.list_processes(&device_id)?,
-            frida_apps,
-        )
-    };
+    query: Option<String>,
+    limit: Option<usize>,
+    force_refresh: Option<bool>,
+) -> Result<CollectionPage<AppInfo>, AppError> {
+    let query = normalize_query(query);
+    let limit = normalize_limit(limit);
+    let query_filter = query.clone();
+    let apps = load_applications(state, &device_id, force_refresh.unwrap_or(false))?;
 
-    if matches!(device.os.as_ref().map(|os| &os.platform), Some(OsPlatform::Android)) {
-        let adb_apps = state
-            .adb_service
-            .lock()
-            .map_err(|_| AppError::Internal("adb_service lock poisoned".to_string()))?
-            .list_applications(&device_id, &processes);
-
-        match adb_apps {
-            Ok(apps) => return Ok(merge_app_lists(&frida_apps, &apps)),
-            Err(AppError::AdbNotFound)
-            | Err(AppError::AdbDeviceNotFound(_))
-            | Err(AppError::AdbError(_)) => {}
-            Err(error) => return Err(error),
-        }
-    }
-
-    if frida_apps.is_empty() {
-        Ok(processes_to_apps(&processes))
-    } else {
-        Ok(frida_apps)
-    }
+    Ok(build_collection_page(&apps, limit, query, |app| {
+        query_filter
+            .as_deref()
+            .map(|value| app_matches(app, value))
+            .unwrap_or(true)
+    }))
 }
 
 fn processes_to_apps(processes: &[ProcessInfo]) -> Vec<AppInfo> {
@@ -159,7 +367,18 @@ pub fn kill_process(state: &AppState, device_id: String, pid: u32) -> Result<(),
         .frida_service
         .lock()
         .map_err(|_| AppError::Internal("frida_service lock poisoned".to_string()))?;
-    svc.kill_process(&device_id, pid)
+    let result = svc.kill_process(&device_id, pid);
+    drop(svc);
+
+    if result.is_ok() {
+        state
+            .list_cache
+            .lock()
+            .map_err(|_| AppError::Internal("list_cache lock poisoned".to_string()))?
+            .invalidate_device(&device_id);
+    }
+
+    result
 }
 
 pub fn spawn_and_attach(
@@ -172,6 +391,12 @@ pub fn spawn_and_attach(
         .lock()
         .map_err(|_| AppError::Internal("frida_service lock poisoned".to_string()))?;
     let session = svc.spawn_and_attach(&device_id, options)?;
+    drop(svc);
+    state
+        .list_cache
+        .lock()
+        .map_err(|_| AppError::Internal("list_cache lock poisoned".to_string()))?
+        .invalidate_device(&device_id);
     emit_console_message(
         state,
         "info",

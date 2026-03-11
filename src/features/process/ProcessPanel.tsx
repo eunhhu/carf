@@ -1,9 +1,9 @@
-import { For, Show, createEffect, createSignal } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup } from "solid-js";
 import { ArrowLeft } from "lucide-solid";
 import {
+  applications,
   processState,
-  filteredProcesses,
-  filteredApplications,
+  processes,
   refreshProcesses,
   refreshApplications,
   selectTarget,
@@ -17,6 +17,7 @@ import { selectedDevice } from "~/features/device/device.store";
 import { setAppView } from "~/features/session/session.store";
 import { cn } from "~/lib/cn";
 import type { ProcessInfo, AppInfo } from "~/lib/types";
+import { VirtualList } from "~/components/VirtualList";
 import AttachModal, { type AttachModalOptions } from "./AttachModal";
 
 export default function ProcessPanel() {
@@ -25,22 +26,35 @@ export default function ProcessPanel() {
 
   createEffect(() => {
     const d = device();
+    const mode = processState.showMode;
+    const query = processState.searchQuery;
     if (!d) return;
-    if (processState.showMode === "processes") {
-      refreshProcesses(d.id);
-    } else {
-      refreshApplications(d.id);
-    }
+
+    const timeout = window.setTimeout(() => {
+      if (mode === "processes") {
+        void refreshProcesses(d.id, query);
+      } else {
+        void refreshApplications(d.id, query);
+      }
+    }, query.trim().length > 0 ? 160 : 0);
+
+    onCleanup(() => window.clearTimeout(timeout));
   });
 
   function handleRefresh() {
     const d = device();
     if (!d) return;
+
     if (processState.showMode === "processes") {
-      refreshProcesses(d.id);
-    } else {
-      refreshApplications(d.id);
+      void refreshProcesses(d.id, processState.searchQuery, {
+        forceRefresh: true,
+      });
+      return;
     }
+
+    void refreshApplications(d.id, processState.searchQuery, {
+      forceRefresh: true,
+    });
   }
 
   function openModal() {
@@ -201,9 +215,25 @@ export default function ProcessPanel() {
           {/* Count badge */}
           <span class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
             {processState.showMode === "processes"
-              ? filteredProcesses().length
-              : filteredApplications().length}
+              ? processState.processesTruncated
+                ? `${processes().length}/${processState.processesTotal}`
+                : processState.processesTotal
+              : processState.applicationsTruncated
+                ? `${applications().length}/${processState.applicationsTotal}`
+                : processState.applicationsTotal}
           </span>
+          <Show
+            when={
+              (processState.showMode === "processes" &&
+                processState.processesTruncated) ||
+              (processState.showMode === "apps" &&
+                processState.applicationsTruncated)
+            }
+          >
+            <span class="text-[10px] text-muted-foreground">
+              Showing preview only. Refine search for more.
+            </span>
+          </Show>
 
           <div class="flex-1" />
 
@@ -237,26 +267,34 @@ export default function ProcessPanel() {
         {/* List */}
         <div class="flex flex-1 overflow-hidden">
           {/* Main list column */}
-          <div class="flex-1 overflow-auto">
-            {/* Loading */}
-            <Show when={processState.loading}>
-              <div class="flex h-32 items-center justify-center">
-                <p class="text-sm text-muted-foreground">
-                  {processState.showMode === "processes"
-                    ? "Loading processes..."
-                    : "Loading applications..."}
-                </p>
+          <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <Show
+              when={
+                processState.loading &&
+                ((processState.showMode === "processes" &&
+                  processes().length > 0) ||
+                  (processState.showMode === "apps" &&
+                    applications().length > 0))
+              }
+            >
+              <div class="border-b px-4 py-1 text-[10px] text-muted-foreground">
+                Refreshing {processState.showMode === "processes"
+                  ? "processes"
+                  : "applications"}
+                ...
               </div>
             </Show>
 
             {/* Processes list */}
-            <Show when={!processState.loading && processState.showMode === "processes"}>
+            <Show when={processState.showMode === "processes"}>
               <Show
-                when={filteredProcesses().length > 0}
+                when={processes().length > 0}
                 fallback={
                   <div class="flex h-32 items-center justify-center">
                     <p class="text-sm text-muted-foreground">
-                      {processState.searchQuery
+                      {processState.loading
+                        ? "Loading processes..."
+                        : processState.searchQuery
                         ? "No processes match your search"
                         : "No processes found"}
                     </p>
@@ -275,20 +313,27 @@ export default function ProcessPanel() {
                     Identifier
                   </span>
                 </div>
-                <For each={filteredProcesses()}>
+                <VirtualList
+                  items={processes()}
+                  itemHeight={36}
+                  resetKey={`${device()?.id ?? ""}:processes:${processState.searchQuery}`}
+                  class="min-h-0 flex-1 overflow-auto"
+                >
                   {(proc) => <ProcessRow process={proc} />}
-                </For>
+                </VirtualList>
               </Show>
             </Show>
 
             {/* Applications list */}
-            <Show when={!processState.loading && processState.showMode === "apps"}>
+            <Show when={processState.showMode === "apps"}>
               <Show
-                when={filteredApplications().length > 0}
+                when={applications().length > 0}
                 fallback={
                   <div class="flex h-32 items-center justify-center">
                     <p class="text-sm text-muted-foreground">
-                      {processState.searchQuery
+                      {processState.loading
+                        ? "Loading applications..."
+                        : processState.searchQuery
                         ? "No applications match your search"
                         : "No applications found"}
                     </p>
@@ -308,9 +353,14 @@ export default function ProcessPanel() {
                     PID
                   </span>
                 </div>
-                <For each={filteredApplications()}>
+                <VirtualList
+                  items={applications()}
+                  itemHeight={36}
+                  resetKey={`${device()?.id ?? ""}:apps:${processState.searchQuery}`}
+                  class="min-h-0 flex-1 overflow-auto"
+                >
                   {(app) => <AppRow app={app} />}
-                </For>
+                </VirtualList>
               </Show>
             </Show>
           </div>

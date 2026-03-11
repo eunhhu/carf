@@ -8,34 +8,50 @@ import { invoke, listen } from "~/lib/tauri";
 export type MemorySubMode = "map" | "hex" | "search" | "monitor";
 
 interface MemoryState {
-  ranges: MemoryRange[];
   rangesLoading: boolean;
   hexAddress: string | null;
-  hexData: Uint8Array | null;
   hexLoading: boolean;
   searchPattern: string;
-  searchResults: ScanResult[];
   searchProgress: number;
   searching: boolean;
   monitorActive: boolean;
+}
+
+interface MemorySnapshotState extends MemoryState {
+  ranges: MemoryRange[];
+  hexData: Uint8Array | null;
+  searchResults: ScanResult[];
   monitorEvents: MemoryMonitorEvent[];
   monitorHeatmap: number[];
 }
 
+type MemoryViewState = MemoryState & {
+  ranges: MemoryRange[];
+  hexData: Uint8Array | null;
+  searchResults: ScanResult[];
+  monitorEvents: MemoryMonitorEvent[];
+  monitorHeatmap: number[];
+};
+
 const DEFAULT_STATE: MemoryState = {
-  ranges: [],
   rangesLoading: false,
   hexAddress: null,
-  hexData: null,
   hexLoading: false,
   searchPattern: "",
-  searchResults: [],
   searchProgress: 0,
   searching: false,
   monitorActive: false,
-  monitorEvents: [],
-  monitorHeatmap: Array.from({ length: 256 }, () => 0),
 };
+
+const DEFAULT_MONITOR_HEATMAP = Array.from({ length: 256 }, () => 0);
+
+const [ranges, setRangesSignal] = createSignal<MemoryRange[]>([]);
+const [hexData, setHexData] = createSignal<Uint8Array | null>(null);
+const [searchResults, setSearchResultsSignal] = createSignal<ScanResult[]>([]);
+const [monitorEvents, setMonitorEvents] = createSignal<MemoryMonitorEvent[]>([]);
+const [monitorHeatmap, setMonitorHeatmap] = createSignal<number[]>(
+  DEFAULT_MONITOR_HEATMAP,
+);
 
 const [state, setState] = createStore<MemoryState>({
   ...DEFAULT_STATE,
@@ -44,16 +60,19 @@ const [state, setState] = createStore<MemoryState>({
 const [subMode, setSubMode] = createSignal<MemorySubMode>("map");
 
 function setRanges(ranges: MemoryRange[]): void {
-  setState({ ranges, rangesLoading: false });
+  setRangesSignal(ranges);
+  setState({ rangesLoading: false });
 }
 
 function setHexView(address: string, data: Uint8Array): void {
-  setState({ hexAddress: address, hexData: data, hexLoading: false });
+  setHexData(data);
+  setState({ hexAddress: address, hexLoading: false });
   setSubMode("hex");
 }
 
 function setSearchResults(results: ScanResult[]): void {
-  setState({ searchResults: results, searching: false });
+  setSearchResultsSignal(results);
+  setState({ searching: false });
 }
 
 function setSearchProgress(progress: number): void {
@@ -77,17 +96,21 @@ async function startMemoryMonitor(
 ): Promise<void> {
   setState({
     monitorActive: true,
-    monitorEvents: [],
-    monitorHeatmap: Array.from({ length: 256 }, () => 0),
   });
+  setMonitorEvents([]);
+  setMonitorHeatmap(DEFAULT_MONITOR_HEATMAP.slice());
 
   monitorUnlisten = listen<MemoryMonitorEvent>(
     "carf://memory/access",
     (payload) => {
       if (extractEventSessionId(payload) !== sessionId) return;
-      setState("monitorEvents", (prev) => [...prev, payload]);
+      setMonitorEvents((prev) => [...prev, payload]);
       const idx = payload.pageIndex % 256;
-      setState("monitorHeatmap", idx, (v) => v + 1);
+      setMonitorHeatmap((prev) => {
+        const next = prev.slice();
+        next[idx] = (next[idx] ?? 0) + 1;
+        return next;
+      });
     },
   );
 
@@ -131,21 +154,33 @@ function setHexLoading(loading: boolean): void {
 
 function resetMemoryState(): void {
   setState(restoreStore(DEFAULT_STATE));
+  setRangesSignal([]);
+  setHexData(null);
+  setSearchResultsSignal([]);
+  setMonitorEvents([]);
+  setMonitorHeatmap(DEFAULT_MONITOR_HEATMAP.slice());
   setSubMode("map");
 }
 
 function snapshotMemoryState(): {
-  state: MemoryState;
+  state: MemorySnapshotState;
   subMode: MemorySubMode;
 } {
   return {
-    state: snapshotStore(state),
+    state: {
+      ...snapshotStore(state),
+      ranges: ranges(),
+      hexData: hexData(),
+      searchResults: searchResults(),
+      monitorEvents: monitorEvents(),
+      monitorHeatmap: monitorHeatmap(),
+    },
     subMode: subMode(),
   };
 }
 
 function restoreMemoryState(snapshot?: {
-  state: MemoryState;
+  state: MemorySnapshotState;
   subMode: MemorySubMode;
 }): void {
   if (!snapshot) {
@@ -153,7 +188,20 @@ function restoreMemoryState(snapshot?: {
     return;
   }
 
-  setState(restoreStore(snapshot.state));
+  setState(restoreStore({
+    rangesLoading: snapshot.state.rangesLoading,
+    hexAddress: snapshot.state.hexAddress,
+    hexLoading: snapshot.state.hexLoading,
+    searchPattern: snapshot.state.searchPattern,
+    searchProgress: snapshot.state.searchProgress,
+    searching: snapshot.state.searching,
+    monitorActive: snapshot.state.monitorActive,
+  }));
+  setRangesSignal(snapshot.state.ranges);
+  setHexData(snapshot.state.hexData);
+  setSearchResultsSignal(snapshot.state.searchResults);
+  setMonitorEvents(snapshot.state.monitorEvents);
+  setMonitorHeatmap(snapshot.state.monitorHeatmap);
   setSubMode(snapshot.subMode);
 }
 
@@ -214,9 +262,9 @@ async function searchMemory(
   sessionId: string,
   pattern: string,
 ): Promise<void> {
+  setSearchResultsSignal([]);
   setState({
     searchPattern: pattern,
-    searchResults: [],
     searchProgress: 0,
     searching: true,
   });
@@ -259,8 +307,52 @@ async function searchMemory(
   }
 }
 
+const memoryState: MemoryViewState = {
+  get ranges() {
+    return ranges();
+  },
+  get rangesLoading() {
+    return state.rangesLoading;
+  },
+  get hexAddress() {
+    return state.hexAddress;
+  },
+  get hexData() {
+    return hexData();
+  },
+  get hexLoading() {
+    return state.hexLoading;
+  },
+  get searchPattern() {
+    return state.searchPattern;
+  },
+  get searchResults() {
+    return searchResults();
+  },
+  get searchProgress() {
+    return state.searchProgress;
+  },
+  get searching() {
+    return state.searching;
+  },
+  get monitorActive() {
+    return state.monitorActive;
+  },
+  get monitorEvents() {
+    return monitorEvents();
+  },
+  get monitorHeatmap() {
+    return monitorHeatmap();
+  },
+};
+
 export {
-  state as memoryState,
+  ranges,
+  hexData,
+  searchResults,
+  monitorEvents,
+  monitorHeatmap,
+  memoryState,
   subMode as memorySubMode,
   setSubMode as setMemorySubMode,
   setRanges,

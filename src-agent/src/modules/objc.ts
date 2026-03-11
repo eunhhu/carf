@@ -13,7 +13,6 @@ interface ObjcHookEntry {
 }
 
 const objcHooks = new Map<string, ObjcHookEntry>();
-let hookCounter = 0;
 
 function toHookInfo(hook: ObjcHookEntry) {
   return {
@@ -108,7 +107,7 @@ registerHandler("hookObjcMethod", (params: unknown) => {
     throw new Error(`Method not found: ${className} ${selector}`);
   }
 
-  const hookId = `objc_hook_${++hookCounter}`;
+  const hookId = `objc_hook_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const impl = method.implementation;
 
   const listener = Interceptor.attach(impl, {

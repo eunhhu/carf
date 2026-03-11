@@ -16,7 +16,8 @@ export type TabId =
 	| "files"
 	| "swift"
 	| "il2cpp"
-	| "antidetect";
+	| "antidetect"
+	| "ai";
 
 export interface TabDefinition {
 	id: TabId;
@@ -42,6 +43,7 @@ export const TAB_DEFINITIONS: TabDefinition[] = [
 	{ id: "swift", label: "Swift", priority: "P2", shortcutIndex: -1 },
 	{ id: "il2cpp", label: "IL2CPP", priority: "P2", shortcutIndex: -1 },
 	{ id: "antidetect", label: "AntiDetect", priority: "P2", shortcutIndex: -1 },
+	{ id: "ai", label: "AI Agent", priority: "P1", shortcutIndex: -1 },
 ];
 
 // ─── Navigation ───
@@ -409,7 +411,7 @@ export interface DeviceProps {
 export interface SwiftTypeInfo {
 	name: string;
 	mangledName: string;
-	kind: "class" | "struct" | "enum" | "protocol";
+	kind: "class" | "struct" | "enum" | "protocol" | "unknown";
 	moduleName: string;
 	methods: SwiftMethodInfo[];
 }
@@ -500,6 +502,56 @@ export interface BypassResult {
 	type: "ssl-pinning" | "root-detection";
 	hooksInstalled: number;
 	details: string[];
+}
+
+// ─── AI Agent ───
+
+export type AiProvider = "claude" | "codex";
+
+export interface AiChatRequest {
+	provider: AiProvider;
+	systemPrompt: string;
+	userMessage: string;
+	model?: string;
+}
+
+export interface AiChatResponse {
+	content: string;
+	provider: AiProvider;
+	durationMs: number;
+	model?: string;
+	costUsd?: number;
+}
+
+export type AiMessageRole =
+	| "user"
+	| "assistant"
+	| "tool-call"
+	| "tool-result";
+
+export interface AiMessage {
+	id: string;
+	role: AiMessageRole;
+	content: string;
+	timestamp: number;
+	toolCalls?: AiToolCall[];
+	quickActions?: AiQuickAction[];
+}
+
+export interface AiToolCall {
+	id: string;
+	method: string;
+	params: Record<string, unknown>;
+	status: "pending" | "running" | "done" | "error";
+	result?: unknown;
+	error?: string;
+	durationMs?: number;
+}
+
+export interface AiQuickAction {
+	label: string;
+	tab?: TabId;
+	context?: Record<string, unknown>;
 }
 
 // ─── Module Extended ───

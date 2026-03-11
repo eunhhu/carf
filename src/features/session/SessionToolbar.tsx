@@ -1,4 +1,4 @@
-import { Show, createSignal } from "solid-js";
+import { Show, createEffect, createSignal } from "solid-js";
 import { ArrowLeft } from "lucide-solid";
 import { activeSession, setAppView, removeSession, updateSessionStatus } from "./session.store";
 import { settingsState, toggleInspector, toggleConsole } from "~/features/settings/settings.store";
@@ -12,12 +12,18 @@ import { pickTextFile } from "~/lib/file-picker";
 
 export function SessionToolbar() {
   const session = activeSession;
+  const [sessionActionError, setSessionActionError] = createSignal<string | null>(null);
 
   const uptime = () => {
     const s = session();
     if (!s) return "";
     return formatDuration(Date.now() - s.createdAt);
   };
+
+  createEffect(() => {
+    void session()?.id;
+    setSessionActionError(null);
+  });
 
   async function handleDetach() {
     const s = session();
@@ -41,8 +47,9 @@ export function SessionToolbar() {
         params: {},
       });
       updateSessionStatus(s.id, "paused");
-    } catch {
-      // ignore
+      setSessionActionError(null);
+    } catch (error) {
+      setSessionActionError(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -52,8 +59,9 @@ export function SessionToolbar() {
     try {
       await invoke<void>("resume", { sessionId: s.id });
       updateSessionStatus(s.id, "active");
-    } catch {
-      // ignore
+      setSessionActionError(null);
+    } catch (error) {
+      setSessionActionError(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -104,6 +112,14 @@ export function SessionToolbar() {
       <div class="flex items-center gap-1">
         <Show when={session()}>
           <span class="mr-2 text-xs text-muted-foreground">{uptime()}</span>
+        </Show>
+
+        <Show when={sessionActionError()}>
+          {(error) => (
+            <span class="mr-2 max-w-80 truncate rounded bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+              {error()}
+            </span>
+          )}
         </Show>
 
         {/* Pause / Resume */}

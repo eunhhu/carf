@@ -1,5 +1,5 @@
 import { registerHandler } from "../rpc/router";
-import { emitMemoryAccess } from "../rpc/protocol";
+import { emitMemoryAccess, emitLog } from "../rpc/protocol";
 
 interface MonitorEvent {
   operation: "read" | "write" | "execute";
@@ -47,9 +47,11 @@ registerHandler("startMemoryMonitor", (params: unknown) => {
         pagesTotal: details.pagesTotal,
       };
 
-      if (monitorEvents.length < MAX_EVENTS) {
-        monitorEvents.push(event);
+      if (monitorEvents.length >= MAX_EVENTS) {
+        emitLog("warn", `Memory monitor event buffer full (${MAX_EVENTS}), dropping oldest events`);
+        monitorEvents.splice(0, monitorEvents.length - MAX_EVENTS + 1);
       }
+      monitorEvents.push(event);
 
       emitMemoryAccess(event);
     },

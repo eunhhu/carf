@@ -182,7 +182,6 @@ interface Il2cppHookEntry {
 }
 
 const il2cppHooks = new Map<string, Il2cppHookEntry>();
-let hookCounter = 0;
 
 function toHookInfo(hook: Il2cppHookEntry) {
   return {
@@ -445,7 +444,7 @@ registerHandler("hookIl2cppMethod", (params: unknown) => {
   if (!mod) throw new Error("IL2CPP library is not loaded");
 
   const target = methodName ?? `il2cpp_${address}`;
-  const hookId = `il2cpp_hook_${++hookCounter}`;
+  const hookId = `il2cpp_hook_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   const listener = Interceptor.attach(addr, {
     onEnter(args) {

@@ -241,6 +241,8 @@ function HooksTab() {
 						<option value="native">Native</option>
 						<option value="java">Java</option>
 						<option value="objc">ObjC</option>
+						<option value="swift">Swift</option>
+						<option value="il2cpp">IL2CPP</option>
 					</select>
 					<button
 						type="button"

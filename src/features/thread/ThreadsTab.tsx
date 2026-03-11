@@ -1,5 +1,9 @@
 import { For, Show, Switch, Match, createEffect, onCleanup } from "solid-js";
 import {
+  backtrace,
+  threadContext,
+  threads,
+  stalkerEvents,
   threadState,
   selectThread,
   selectedThread,
@@ -25,6 +29,7 @@ import {
 } from "~/components/ActionPopover";
 import { CopyButton } from "~/components/CopyButton";
 import { InlineActions } from "~/components/InlineActions";
+import { VirtualList } from "~/components/VirtualList";
 import { navigateTo } from "~/lib/navigation";
 
 const STATE_COLORS: Record<string, string> = {
@@ -71,7 +76,7 @@ function ThreadsTab() {
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold">Threads</span>
           <span class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-            {threadState.threads.length}
+            {threads().length}
           </span>
         </div>
         <div class="flex items-center gap-2">
@@ -98,56 +103,64 @@ function ThreadsTab() {
           maxLeft={350}
           defaultLeft={250}
           left={
-            <div class="h-full overflow-auto">
-              <Show
-                when={!threadState.loading}
-                fallback={
+            <Show
+              when={!threadState.loading}
+              fallback={
+                <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
+                  Loading threads...
+                </div>
+              }
+            >
+              <VirtualList
+                items={threads()}
+                itemHeight={36}
+                resetKey={activeSession()?.id ?? ""}
+                class="h-full overflow-auto"
+                empty={
                   <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
-                    Loading threads...
+                    No threads loaded
                   </div>
                 }
               >
-                <For each={threadState.threads}>
-                  {(thread) => {
-                    const isSelected = () =>
-                      threadState.selectedThreadId === thread.id;
-                    return (
-                      <button
+                {(thread) => {
+                  const isSelected = () =>
+                    threadState.selectedThreadId === thread.id;
+                  return (
+                    <button
+                      class={cn(
+                        "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-hover",
+                        isSelected() && "bg-muted",
+                      )}
+                      onClick={() => handleSelectThread(thread.id)}
+                    >
+                      <span
                         class={cn(
-                          "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-hover",
-                          isSelected() && "bg-muted",
+                          "h-2 w-2 shrink-0 rounded-full",
+                          STATE_COLORS[thread.state] ?? "bg-muted-foreground",
                         )}
-                        onClick={() => handleSelectThread(thread.id)}
+                        title={thread.state}
+                      />
+                      <ActionPopover
+                        type="thread"
+                        value={String(thread.id)}
+                        actions={buildThreadActions(thread.id)}
                       >
-                        <span
-                          class={cn(
-                            "h-2 w-2 shrink-0 rounded-full",
-                            STATE_COLORS[thread.state] ?? "bg-muted-foreground",
-                          )}
-                          title={thread.state}
-                        />
-                        <ActionPopover
-                          type="thread"
-                          value={String(thread.id)}
-                          actions={buildThreadActions(thread.id)}
-                        >
-                          <span class="cursor-pointer font-mono text-purple-400 border-b border-dashed border-current/40">
-                            #{thread.id}
-                          </span>
-                        </ActionPopover>
-                        <CopyButton value={String(thread.id)} />
-                        <span class="flex-1 truncate" title={thread.name ?? "unnamed"}>
-                          {thread.name ?? "unnamed"}
+                        <span class="cursor-pointer border-b border-dashed border-current/40 font-mono text-purple-400">
+                          #{thread.id}
                         </span>
-                        <span class="text-muted-foreground" title={thread.state}>
-                          {thread.state}
-                        </span>
-                      </button>
-                    );
-                  }}
-                </For>
-              </Show>
-            </div>
+                      </ActionPopover>
+                      <CopyButton value={String(thread.id)} />
+                      <span class="flex-1 truncate" title={thread.name ?? "unnamed"}>
+                        {thread.name ?? "unnamed"}
+                      </span>
+                      <span class="text-muted-foreground" title={thread.state}>
+                        {thread.state}
+                      </span>
+                    </button>
+                  );
+                }}
+              </VirtualList>
+            </Show>
           }
           right={
             <div class="h-full overflow-auto">
@@ -231,7 +244,7 @@ function BacktraceView() {
         </div>
       }
     >
-      <For each={threadState.backtrace}>
+      <For each={backtrace()}>
         {(frame, idx) => (
           <div class="group/row flex items-center gap-2 rounded py-1 text-xs hover:bg-surface-hover">
             <span class="w-6 shrink-0 text-right text-muted-foreground">
@@ -306,7 +319,7 @@ function BacktraceView() {
           </div>
         )}
       </For>
-      <Show when={threadState.backtrace.length === 0}>
+      <Show when={backtrace().length === 0}>
         <div class="py-4 text-center text-xs text-muted-foreground">
           No backtrace data
         </div>
@@ -326,7 +339,7 @@ function ContextView(props: { threadId: number }) {
       }
     >
       <Show
-        when={threadState.context}
+        when={threadContext()}
         fallback={
           <div class="flex flex-col items-center gap-2 py-4">
             <div class="text-xs text-muted-foreground">
@@ -426,12 +439,12 @@ function StalkerView(props: { threadId: number }) {
           <span class="text-[10px] text-success">Recording...</span>
         </Show>
         <span class="ml-auto text-[10px] text-muted-foreground">
-          {threadState.stalkerEvents.length} events
+          {stalkerEvents().length} events
         </span>
       </div>
 
       <Show
-        when={threadState.stalkerEvents.length > 0}
+        when={stalkerEvents().length > 0}
         fallback={
           <div class="py-4 text-center text-xs text-muted-foreground">
             {threadState.stalkerActive
@@ -440,39 +453,42 @@ function StalkerView(props: { threadId: number }) {
           </div>
         }
       >
-        <div class="max-h-96 overflow-auto">
-          <div class="flex items-center border-b px-2 py-1 text-[10px] font-medium uppercase text-muted-foreground">
-            <span class="w-10 shrink-0">Type</span>
-            <span class="w-24 shrink-0">From</span>
-            <span class="w-24 shrink-0">To</span>
-            <span class="flex-1">Symbol</span>
-            <span class="w-10 shrink-0 text-right">Depth</span>
-          </div>
-          <For each={threadState.stalkerEvents}>
-            {(event) => (
-              <div class="flex items-center px-2 py-0.5 text-xs hover:bg-surface-hover">
-                <span class="w-10 shrink-0 text-[10px] text-muted-foreground">
-                  {event.type}
-                </span>
-                <span class="w-24 shrink-0 font-mono text-[10px]">
-                  {formatAddress(event.from)}
-                </span>
-                <span class="w-24 shrink-0 font-mono text-[10px]">
-                  {formatAddress(event.to)}
-                </span>
-                <span class="flex-1 truncate font-mono text-[10px]" title={event.toSymbol ?? ""}>
-                  <Show when={event.toModule}>
-                    <span class="text-muted-foreground">{event.toModule}!</span>
-                  </Show>
-                  {event.toSymbol ?? ""}
-                </span>
-                <span class="w-10 shrink-0 text-right text-[10px] text-muted-foreground">
-                  {event.depth}
-                </span>
-              </div>
-            )}
-          </For>
+        <div class="flex items-center border-b px-2 py-1 text-[10px] font-medium uppercase text-muted-foreground">
+          <span class="w-10 shrink-0">Type</span>
+          <span class="w-24 shrink-0">From</span>
+          <span class="w-24 shrink-0">To</span>
+          <span class="flex-1">Symbol</span>
+          <span class="w-10 shrink-0 text-right">Depth</span>
         </div>
+        <VirtualList
+          items={stalkerEvents()}
+          itemHeight={22}
+          overscan={12}
+          class="max-h-96 overflow-auto"
+        >
+          {(event) => (
+            <div class="flex items-center px-2 py-0.5 text-xs hover:bg-surface-hover">
+              <span class="w-10 shrink-0 text-[10px] text-muted-foreground">
+                {event.type}
+              </span>
+              <span class="w-24 shrink-0 font-mono text-[10px]">
+                {formatAddress(event.from)}
+              </span>
+              <span class="w-24 shrink-0 font-mono text-[10px]">
+                {formatAddress(event.to)}
+              </span>
+              <span class="flex-1 truncate font-mono text-[10px]" title={event.toSymbol ?? ""}>
+                <Show when={event.toModule}>
+                  <span class="text-muted-foreground">{event.toModule}!</span>
+                </Show>
+                {event.toSymbol ?? ""}
+              </span>
+              <span class="w-10 shrink-0 text-right text-[10px] text-muted-foreground">
+                {event.depth}
+              </span>
+            </div>
+          )}
+        </VirtualList>
       </Show>
     </div>
   );

@@ -1,7 +1,12 @@
 import { For, Show, Switch, Match, createEffect, createMemo, createSignal, onMount } from "solid-js";
 import {
+  hexData,
+  monitorEvents,
+  monitorHeatmap,
   memoryState,
   memorySubMode,
+  ranges,
+  searchResults,
   setMemorySubMode,
   fetchRanges,
   readMemoryAt,
@@ -17,6 +22,7 @@ import { activeSession } from "~/features/session/session.store";
 import { CopyButton } from "~/components/CopyButton";
 import { ActionPopover, buildAddressActions } from "~/components/ActionPopover";
 import { InlineActions } from "~/components/InlineActions";
+import { VirtualList } from "~/components/VirtualList";
 
 const SUB_MODES: { id: MemorySubMode; label: string }[] = [
   { id: "map", label: "Map" },
@@ -99,7 +105,7 @@ function MemoryTab() {
 
 function MemoryMapView() {
   return (
-    <div class="p-1">
+    <div class="flex h-full flex-col p-1">
       <Show
         when={!memoryState.rangesLoading}
         fallback={
@@ -117,7 +123,18 @@ function MemoryMapView() {
           <span class="w-20 shrink-0" />
         </div>
 
-        <For each={memoryState.ranges}>
+        <VirtualList
+          items={ranges()}
+          itemHeight={24}
+          overscan={10}
+          resetKey={activeSession()?.id ?? ""}
+          class="flex-1 overflow-auto"
+          empty={
+            <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
+              No memory ranges loaded. Click refresh to enumerate.
+            </div>
+          }
+        >
           {(range) => (
             <div
               class="group/row flex w-full cursor-pointer items-center px-3 py-0.5 text-xs hover:bg-surface-hover"
@@ -193,13 +210,7 @@ function MemoryMapView() {
               </span>
             </div>
           )}
-        </For>
-
-        <Show when={memoryState.ranges.length === 0}>
-          <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
-            No memory ranges loaded. Click refresh to enumerate.
-          </div>
-        </Show>
+        </VirtualList>
       </Show>
     </div>
   );
@@ -209,11 +220,11 @@ function HexView() {
   const BYTES_PER_ROW = 16;
 
   const rows = () => {
-    const data = memoryState.hexData;
-    if (!data) return [];
+    const bytes = hexData();
+    if (!bytes) return [];
     const result: { offset: number; bytes: number[]; ascii: string }[] = [];
-    for (let i = 0; i < data.length; i += BYTES_PER_ROW) {
-      const slice = Array.from(data.slice(i, i + BYTES_PER_ROW));
+    for (let i = 0; i < bytes.length; i += BYTES_PER_ROW) {
+      const slice = Array.from(bytes.slice(i, i + BYTES_PER_ROW));
       const ascii = slice
         .map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : "."))
         .join("");
@@ -254,7 +265,7 @@ function HexView() {
             <CopyButton value={memoryState.hexAddress!} />
           </span>
           <span class="text-[10px] text-muted-foreground">
-            {memoryState.hexData?.length ?? 0} bytes
+            {hexData()?.length ?? 0} bytes
           </span>
           <div class="flex-1" />
           <button
@@ -354,40 +365,44 @@ function SearchView() {
         </div>
       </Show>
 
-      <Show when={memoryState.searchResults.length > 0}>
+      <Show when={searchResults().length > 0}>
         <div class="mt-3 text-xs">
           <span class="text-muted-foreground">
-            {memoryState.searchResults.length} results
+            {searchResults().length} results
           </span>
-          <div class="mt-2">
-            <For each={memoryState.searchResults}>
-              {(result) => (
-                <div
-                  class="group/row flex w-full cursor-pointer items-center gap-2 px-2 py-0.5 hover:bg-surface-hover"
-                  onClick={() => {
-                    const session = activeSession();
-                    if (session) {
-                      readMemoryAt(session.id, result.address);
-                    }
-                  }}
-                >
-                  <span class="flex items-center gap-1">
-                    <ActionPopover
-                      type="address"
-                      value={result.address}
-                      actions={buildAddressActions(result.address)}
-                    >
-                      {formatAddress(result.address)}
-                    </ActionPopover>
-                    <CopyButton value={result.address} />
-                  </span>
-                  <span class="text-muted-foreground">
-                    {result.size} bytes
-                  </span>
-                </div>
-              )}
-            </For>
-          </div>
+          <VirtualList
+            items={searchResults()}
+            itemHeight={24}
+            overscan={10}
+            resetKey={memoryState.searchPattern}
+            class="mt-2 max-h-80 overflow-auto"
+          >
+            {(result) => (
+              <div
+                class="group/row flex w-full cursor-pointer items-center gap-2 px-2 py-0.5 hover:bg-surface-hover"
+                onClick={() => {
+                  const session = activeSession();
+                  if (session) {
+                    readMemoryAt(session.id, result.address);
+                  }
+                }}
+              >
+                <span class="flex items-center gap-1">
+                  <ActionPopover
+                    type="address"
+                    value={result.address}
+                    actions={buildAddressActions(result.address)}
+                  >
+                    {formatAddress(result.address)}
+                  </ActionPopover>
+                  <CopyButton value={result.address} />
+                </span>
+                <span class="text-muted-foreground">
+                  {result.size} bytes
+                </span>
+              </div>
+            )}
+          </VirtualList>
         </div>
       </Show>
     </div>
@@ -411,7 +426,7 @@ function MonitorView() {
   }
 
   const maxHeat = createMemo(() => {
-    const max = Math.max(...memoryState.monitorHeatmap);
+    const max = Math.max(...monitorHeatmap());
     return max > 0 ? max : 1;
   });
 
@@ -486,7 +501,7 @@ function MonitorView() {
             <span class="text-success">Monitoring active</span>
             <span>Base: {monitorAddress()}</span>
             <span>Size: {monitorSize()} bytes</span>
-            <span>{memoryState.monitorEvents.length} events</span>
+            <span>{monitorEvents().length} events</span>
           </div>
           <div class="flex items-center gap-1 text-[10px] text-muted-foreground">
             <span>Cold</span>
@@ -501,7 +516,7 @@ function MonitorView() {
             <span>Hot</span>
           </div>
           <div class="mt-3 grid grid-cols-16 gap-px">
-            <For each={memoryState.monitorHeatmap}>
+            <For each={monitorHeatmap()}>
               {(count, i) => (
                 <div
                   class={cn("h-4 w-4 rounded-sm", heatColor(count))}

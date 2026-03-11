@@ -12,6 +12,81 @@ const DEFAULT_BRIDGE_URL =
 		? window.location.origin
 		: undefined;
 const BRIDGE_BASE_URL = EXPLICIT_BRIDGE_URL || DEFAULT_BRIDGE_URL;
+const RPC_CHUNK_EVENT = "carf://rpc/chunk";
+
+interface RpcChunkEvent {
+	requestId: string;
+	phase: "chunk" | "complete";
+	isArray: boolean;
+	chunkIndex: number;
+	totalChunks: number;
+	data?: unknown;
+}
+
+function createRequestId(): string {
+	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+		return crypto.randomUUID();
+	}
+
+	return `rpc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function invokeChunkedRpc<T>(
+	args?: Record<string, unknown>,
+): Promise<T> {
+	const requestId = createRequestId();
+	const chunks: unknown[] = [];
+	let scalarValue: unknown;
+
+	return new Promise<T>((resolve, reject) => {
+		let settled = false;
+		let unlisten: (() => void) | undefined;
+
+		const finish = (fn: () => void) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			unlisten?.();
+			fn();
+		};
+
+		tauriListen<RpcChunkEvent>(RPC_CHUNK_EVENT, (event) => {
+			const payload = event.payload;
+			if (payload.requestId !== requestId) {
+				return;
+			}
+
+			if (payload.phase === "chunk") {
+				if (payload.isArray) {
+					if (Array.isArray(payload.data)) {
+						chunks.push(...payload.data);
+					}
+				} else {
+					scalarValue = payload.data;
+				}
+				return;
+			}
+
+			finish(() => {
+				resolve((payload.isArray ? chunks : scalarValue) as T);
+			});
+		})
+			.then((cleanup) => {
+				unlisten = cleanup;
+				return tauriInvoke<void>("rpc_call_chunked", {
+					...args,
+					requestId,
+					chunkSize: 128,
+				});
+			})
+			.catch((error) => {
+				finish(() => {
+					reject(error);
+				});
+			});
+	});
+}
 
 async function bridgeInvoke<T>(
 	cmd: string,
@@ -79,7 +154,10 @@ export async function invoke<T>(
 
 		return mockInvoke<T>(cmd, args);
 	}
-	const result = await tauriInvoke<unknown>(cmd, args);
+	const result =
+		cmd === "rpc_call"
+			? await invokeChunkedRpc<unknown>(args)
+			: await tauriInvoke<unknown>(cmd, args);
 
 	if (cmd === "rpc_call") {
 		return unwrapRpcResult(result) as T;

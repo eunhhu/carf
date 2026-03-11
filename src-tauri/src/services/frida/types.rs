@@ -80,6 +80,16 @@ pub struct AppInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CollectionPage<T> {
+    pub items: Vec<T>,
+    pub total: usize,
+    pub limit: usize,
+    pub truncated: bool,
+    pub query: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SpawnOptions {
     pub identifier: String,
     pub argv: Option<Vec<String>>,

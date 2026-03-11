@@ -12,7 +12,6 @@ interface JavaHookEntry {
 }
 
 const javaHooks = new Map<string, JavaHookEntry>();
-let hookCounter = 0;
 
 function isJavaAvailable(): boolean {
   try {
@@ -67,8 +66,9 @@ registerHandler("getAndroidPackageName", (_params: unknown) => {
 registerHandler("enumerateJavaClasses", (params: unknown) => {
   ensureJavaAvailable();
 
-  const p = (params as { filter?: string }) ?? {};
+  const p = (params as { filter?: string; limit?: number }) ?? {};
   const filter = p.filter?.toLowerCase();
+  const limit = typeof p.limit === "number" && p.limit > 0 ? Math.floor(p.limit) : null;
 
   return new Promise<string[]>((resolve, reject) => {
     Java.performNow(() => {
@@ -77,7 +77,7 @@ registerHandler("enumerateJavaClasses", (params: unknown) => {
         const filtered = filter
           ? classes.filter((c) => c.toLowerCase().includes(filter))
           : classes;
-        resolve(filtered);
+        resolve(limit === null ? filtered : filtered.slice(0, limit));
       } catch (e) {
         reject(e);
       }
@@ -169,7 +169,7 @@ registerHandler("hookJavaMethod", (params: unknown) => {
     overloadIndex?: number;
   };
 
-  const hookId = `java_hook_${++hookCounter}`;
+  const hookId = `java_hook_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   return new Promise<unknown>((resolve, reject) => {
     Java.performNow(() => {

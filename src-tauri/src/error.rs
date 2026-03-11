@@ -58,6 +58,10 @@ pub enum AppError {
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
 
+    // AI provider errors
+    #[error("AI provider error: {0}")]
+    AiProviderError(String),
+
     // Catch-all
     #[error("Internal error: {0}")]
     Internal(String),
@@ -97,6 +101,7 @@ impl AppError {
             AppError::AdbRootRequired => "ADB_ROOT_REQUIRED",
             AppError::ConnectionFailed(_, _) => "CONNECTION_FAILED",
             AppError::InvalidAddress(_) => "INVALID_ADDRESS",
+            AppError::AiProviderError(_) => "AI_PROVIDER_ERROR",
             AppError::Internal(_) => "INTERNAL_ERROR",
         }
     }

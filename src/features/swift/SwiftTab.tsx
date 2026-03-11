@@ -10,7 +10,6 @@ import {
 	fetchSwiftModules,
 	fetchSwiftTypes,
 	hookSwiftFunction,
-	unhookSwiftFunction,
 } from "./swift.store";
 import { hooksState, deleteHook } from "~/features/hooks/hooks.store";
 import { cn } from "~/lib/cn";
@@ -162,12 +161,12 @@ function SwiftTab() {
 													>
 														{type.kind}
 													</span>
-													<span class="truncate font-mono" title={type.name}>
-														{type.name}
-													</span>
-													<span class="ml-auto text-muted-foreground">
-														{type.methods.length}m
-													</span>
+											<span class="truncate font-mono" title={type.name}>
+												{type.name}
+											</span>
+											<span class="ml-auto text-muted-foreground">
+												{type.methods.length > 0 ? `${type.methods.length}m` : "summary"}
+											</span>
 												</button>
 											)}
 										</For>
@@ -263,12 +262,8 @@ function SwiftTypeDetail() {
 																				method.address,
 																			);
 																			if (hook) {
-																				deleteHook(session.id, hook);
+																				void deleteHook(session.id, hook);
 																			}
-																			unhookSwiftFunction(
-																				session.id,
-																				method.address,
-																			);
 																		}
 																	},
 																}
@@ -317,7 +312,7 @@ function SwiftTypeDetail() {
 							</For>
 							<Show when={swiftState.methods.length === 0}>
 								<div class="py-4 text-center text-xs text-muted-foreground">
-									No methods
+									Method enumeration is not available for this Swift runtime yet.
 								</div>
 							</Show>
 						</div>

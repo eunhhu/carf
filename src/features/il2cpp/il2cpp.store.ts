@@ -24,6 +24,7 @@ type Il2cppRequestKind =
 interface Il2cppState {
 	info: Il2cppInfo | null;
 	classes: Il2cppClassInfo[];
+	classPointers: Record<string, string>;
 	classesLoading: boolean;
 	selectedClass: string | null;
 	methods: Il2cppMethodInfo[];
@@ -32,9 +33,58 @@ interface Il2cppState {
 	available: boolean | null;
 }
 
+interface RawIl2cppInfo {
+	name?: string;
+	moduleName?: string;
+	base?: string;
+	size?: number;
+	version?: string | null;
+}
+
+interface RawIl2cppAssembly {
+	name: string;
+	imageName: string;
+	imagePtr: string;
+}
+
+interface RawIl2cppDomains {
+	assemblies?: RawIl2cppAssembly[];
+}
+
+interface RawIl2cppClassEntry {
+	name: string;
+	namespace: string;
+	classPtr: string;
+}
+
+interface RawIl2cppClassResult {
+	totalCount?: number;
+	classes?: RawIl2cppClassEntry[];
+}
+
+interface RawIl2cppMethodInfo {
+	name: string;
+	address: string;
+	paramCount: number;
+}
+
+interface RawIl2cppFieldInfo {
+	name: string;
+	offset: number;
+	typeName?: string | null;
+}
+
+interface RawIl2cppDump {
+	path?: string;
+	moduleName?: string;
+	totalAssemblies?: number;
+	dump?: Array<{ imageName: string; classes: unknown[] }>;
+}
+
 const DEFAULT_STATE: Il2cppState = {
 	info: null,
 	classes: [],
+	classPointers: {},
 	classesLoading: false,
 	selectedClass: null,
 	methods: [],
@@ -123,6 +173,40 @@ function restoreIl2cppState(snapshot?: {
 	setSubTab(snapshot.subTab);
 }
 
+function normalizeIl2cppInfo(result: RawIl2cppInfo): Il2cppInfo {
+	return {
+		available: true,
+		moduleName: result.moduleName ?? result.name ?? null,
+		base: result.base ?? null,
+		size: result.size ?? null,
+		version: result.version ?? null,
+	};
+}
+
+function normalizeIl2cppMethod(
+	method: RawIl2cppMethodInfo,
+): Il2cppMethodInfo {
+	return {
+		name: method.name,
+		address: method.address,
+		paramCount: method.paramCount,
+		returnType: "unknown",
+		isStatic: false,
+		hooked: false,
+	};
+}
+
+function normalizeIl2cppField(
+	field: RawIl2cppFieldInfo,
+): Il2cppFieldInfo {
+	return {
+		name: field.name,
+		type: field.typeName ?? "unknown",
+		offset: field.offset,
+		isStatic: false,
+	};
+}
+
 async function checkIl2cppAvailable(sessionId: string): Promise<boolean> {
 	const requestId = beginRequest(sessionId, "availability");
 	try {
@@ -139,13 +223,13 @@ async function checkIl2cppAvailable(sessionId: string): Promise<boolean> {
 			});
 		}
 		if (result) {
-			const info = await invoke<Il2cppInfo>("rpc_call", {
+			const info = await invoke<RawIl2cppInfo>("rpc_call", {
 				sessionId,
 				method: "getIl2cppInfo",
 				params: {},
 			});
 			if (shouldCommitRequest(sessionId, "availability", requestId)) {
-				setState("info", info);
+				setState("info", normalizeIl2cppInfo(info));
 			}
 		}
 		return result;
@@ -166,15 +250,53 @@ async function fetchIl2cppClasses(sessionId: string): Promise<void> {
 	const requestId = beginRequest(sessionId, "classes");
 	setState("classesLoading", true);
 	try {
-		const result = await invoke<Il2cppClassInfo[]>("rpc_call", {
+		const domains = await invoke<RawIl2cppDomains>("rpc_call", {
 			sessionId,
-			method: "enumerateIl2cppClasses",
+			method: "enumerateIl2cppDomains",
 			params: {},
 		});
+		const assemblies = domains.assemblies ?? [];
+		const classPointers: Record<string, string> = {};
+		const classes: Il2cppClassInfo[] = [];
+		const rawQuery = searchQuery().trim().toLowerCase();
+		const filter = rawQuery.length >= 2 ? rawQuery : undefined;
+
+		for (let index = 0; index < assemblies.length; index += 1) {
+			const assembly = assemblies[index];
+			const result = await invoke<RawIl2cppClassResult>("rpc_call", {
+				sessionId,
+				method: "enumerateIl2cppClasses",
+				params: {
+					imagePtr: assembly.imagePtr,
+					filter,
+					maxCount: filter ? 200 : 100,
+				},
+			});
+
+			for (const cls of result.classes ?? []) {
+				const baseFullName = cls.namespace ? `${cls.namespace}.${cls.name}` : cls.name;
+				const fullName =
+					classPointers[baseFullName] === undefined
+						? baseFullName
+						: `${baseFullName} [${assembly.imageName}]`;
+				classPointers[fullName] = cls.classPtr;
+				classes.push({
+					name: cls.name,
+					namespace: cls.namespace,
+					fullName,
+					methodCount: 0,
+					fieldCount: 0,
+					imageIndex: index,
+				});
+			}
+		}
+
+		classes.sort((left, right) => left.fullName.localeCompare(right.fullName));
+
 		if (shouldCommitRequest(sessionId, "classes", requestId)) {
 			scheduleTransition(() => {
 				if (shouldCommitRequest(sessionId, "classes", requestId)) {
-					setState({ classes: result, classesLoading: false });
+					setState({ classes, classPointers, classesLoading: false });
 				}
 			});
 		}
@@ -196,16 +318,22 @@ async function fetchIl2cppMethods(
 ): Promise<void> {
 	const requestId = beginRequest(sessionId, "methods");
 	setState("detailLoading", true);
+	const classPtr = state.classPointers[className];
+	if (!classPtr) {
+		setState({ methods: [], detailLoading: false });
+		return;
+	}
 	try {
-		const result = await invoke<Il2cppMethodInfo[]>("rpc_call", {
+		const result = await invoke<RawIl2cppMethodInfo[]>("rpc_call", {
 			sessionId,
 			method: "getIl2cppClassMethods",
-			params: { className },
+			params: { classPtr },
 		});
+		const methods = result.map(normalizeIl2cppMethod);
 		if (shouldCommitRequest(sessionId, "methods", requestId)) {
 			scheduleTransition(() => {
 				if (shouldCommitRequest(sessionId, "methods", requestId)) {
-					setState({ methods: result, detailLoading: false });
+					setState({ methods, detailLoading: false });
 				}
 			});
 		}
@@ -226,16 +354,22 @@ async function fetchIl2cppFields(
 	className: string,
 ): Promise<void> {
 	const requestId = beginRequest(sessionId, "fields");
+	const classPtr = state.classPointers[className];
+	if (!classPtr) {
+		setState("fields", []);
+		return;
+	}
 	try {
-		const result = await invoke<Il2cppFieldInfo[]>("rpc_call", {
+		const result = await invoke<RawIl2cppFieldInfo[]>("rpc_call", {
 			sessionId,
 			method: "getIl2cppClassFields",
-			params: { className },
+			params: { classPtr },
 		});
+		const fields = result.map(normalizeIl2cppField);
 		if (shouldCommitRequest(sessionId, "fields", requestId)) {
 			scheduleTransition(() => {
 				if (shouldCommitRequest(sessionId, "fields", requestId)) {
-					setState("fields", result);
+					setState("fields", fields);
 				}
 			});
 		}
@@ -254,7 +388,6 @@ function selectIl2cppClass(name: string | null): void {
 
 async function hookIl2cppMethod(
 	sessionId: string,
-	className: string,
 	methodName: string,
 	address: string,
 ): Promise<void> {
@@ -262,7 +395,7 @@ async function hookIl2cppMethod(
 		const hook = await invoke<HookInfo>("rpc_call", {
 			sessionId,
 			method: "hookIl2cppMethod",
-			params: { className, methodName, address },
+			params: { methodName, address },
 		});
 		if (activeSession()?.id !== sessionId) return;
 		addHook(hook);
@@ -279,21 +412,24 @@ async function hookIl2cppMethod(
 
 async function unhookIl2cppMethod(
 	sessionId: string,
-	address: string,
+	hookId: string,
+	address?: string,
 ): Promise<void> {
 	try {
 		await invoke<void>("rpc_call", {
 			sessionId,
 			method: "unhookIl2cppMethod",
-			params: { address },
+			params: { hookId },
 		});
 		if (activeSession()?.id !== sessionId) return;
-		setState(
-			"methods",
-			(m) => m.address === address,
-			"hooked",
-			false,
-		);
+		if (address) {
+			setState(
+				"methods",
+				(m) => m.address === address,
+				"hooked",
+				false,
+			);
+		}
 	} catch (e) {
 		console.error("unhookIl2cppMethod error:", e);
 	}
@@ -301,12 +437,19 @@ async function unhookIl2cppMethod(
 
 async function dumpIl2cppMetadata(sessionId: string): Promise<string | null> {
 	try {
-		const result = await invoke<{ path: string }>("rpc_call", {
+		const result = await invoke<RawIl2cppDump>("rpc_call", {
 			sessionId,
 			method: "dumpIl2cppMetadata",
 			params: {},
 		});
-		return result.path;
+		if (typeof result.path === "string") {
+			return result.path;
+		}
+		const dumpedClasses = (result.dump ?? []).reduce(
+			(total, image) => total + image.classes.length,
+			0,
+		);
+		return `${result.moduleName ?? "IL2CPP"}: ${result.totalAssemblies ?? 0} assemblies, ${dumpedClasses} classes`;
 	} catch (e) {
 		console.error("dumpIl2cppMetadata error:", e);
 		return null;

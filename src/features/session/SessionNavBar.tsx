@@ -13,6 +13,7 @@ import {
 	Package,
 	Pin,
 	ShieldOff,
+	Sparkles,
 	Terminal,
 	Wind,
 } from "lucide-solid";
@@ -44,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
 	{ id: "swift", label: "Swift", icon: Wind },
 	{ id: "il2cpp", label: "IL2CPP", icon: Gamepad2 },
 	{ id: "antidetect", label: "AntiDetect", icon: ShieldOff },
+	{ id: "ai", label: "AI Agent", icon: Sparkles },
 ];
 
 interface SessionNavBarProps {

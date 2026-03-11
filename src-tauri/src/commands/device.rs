@@ -22,7 +22,10 @@ pub fn add_remote_device(
 
 /// Removes a previously added remote device.
 #[tauri::command]
-pub fn remove_remote_device(state: State<'_, AppState>, address: String) -> Result<(), AppError> {
+pub fn remove_remote_device(
+    state: State<'_, AppState>,
+    address: String,
+) -> Result<(), AppError> {
     api::remove_remote_device(&state, address)
 }
 

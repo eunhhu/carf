@@ -2,9 +2,17 @@ import { Show, For, Switch, Match } from "solid-js";
 import { settingsState } from "~/features/settings/settings.store";
 import { activeTab } from "~/lib/navigation";
 import { moduleState } from "~/features/module/module.store";
-import { threadState } from "~/features/thread/thread.store";
+import {
+  backtrace as threadBacktrace,
+  threadState,
+  threads as threadList,
+} from "~/features/thread/thread.store";
 import { hooksState, getRecentEvents } from "~/features/hooks/hooks.store";
-import { memoryState } from "~/features/memory/memory.store";
+import {
+  hexData as memoryHexData,
+  memoryState,
+  ranges as memoryRanges,
+} from "~/features/memory/memory.store";
 
 export function InspectorPanel() {
   return (
@@ -150,9 +158,9 @@ function ModulesInspector() {
 
 function ThreadsInspector() {
   const selected = () => threadState.selectedThreadId;
-  const backtrace = () => threadState.backtrace;
+  const backtrace = () => threadBacktrace();
   const thread = () =>
-    threadState.threads.find((t) => t.id === selected()) ?? null;
+    threadList().find((t) => t.id === selected()) ?? null;
 
   return (
     <Show when={selected() !== null} fallback={<EmptyInspector />}>
@@ -292,8 +300,8 @@ function HooksInspector() {
 
 function MemoryInspector() {
   const address = () => memoryState.hexAddress;
-  const data = () => memoryState.hexData;
-  const ranges = () => memoryState.ranges;
+  const data = () => memoryHexData();
+  const ranges = () => memoryRanges();
 
   return (
     <Show

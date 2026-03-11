@@ -1,4 +1,4 @@
-import { createDeferred, createMemo, createRoot, createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { addHook } from "~/features/hooks/hooks.store";
 import { activeSession } from "~/features/session/session.store";
@@ -16,23 +16,22 @@ type JavaRequestKind =
 	| "instances";
 
 interface JavaState {
-	classes: string[];
 	classesLoading: boolean;
 	selectedClass: string | null;
-	methods: JavaMethodInfo[];
-	fields: JavaFieldInfo[];
-	instances: unknown[];
 	detailLoading: boolean;
 	available: boolean | null;
 }
 
+type JavaViewState = JavaState & {
+	classes: string[];
+	methods: JavaMethodInfo[];
+	fields: JavaFieldInfo[];
+	instances: unknown[];
+};
+
 const DEFAULT_STATE: JavaState = {
-	classes: [],
 	classesLoading: false,
 	selectedClass: null,
-	methods: [],
-	fields: [],
-	instances: [],
 	detailLoading: false,
 	available: null,
 };
@@ -40,10 +39,15 @@ const DEFAULT_STATE: JavaState = {
 const [state, setState] = createStore<JavaState>({
 	...DEFAULT_STATE,
 });
+const [classes, setClassesData] = createSignal<string[]>([]);
+const [methods, setMethodsData] = createSignal<JavaMethodInfo[]>([]);
+const [fields, setFieldsData] = createSignal<JavaFieldInfo[]>([]);
+const [instances, setInstancesData] = createSignal<unknown[]>([]);
 
 const [searchQuery, setSearchQuery] = createSignal("");
 const [subTab, setSubTab] = createSignal<JavaSubTab>("methods");
 const requestVersions = new Map<string, Record<JavaRequestKind, number>>();
+const JAVA_CLASS_RESULT_LIMIT = 200;
 
 function getRequestVersions(
 	sessionId: string,
@@ -81,41 +85,72 @@ function shouldCommitRequest(
 	);
 }
 
-const { filteredClasses } = createRoot(() => {
-	const deferredSearchQuery = createDeferred(searchQuery);
+const filteredClasses = createMemo(() => classes());
 
-	return {
-		filteredClasses: createMemo(() => {
-			const query = deferredSearchQuery().trim().toLowerCase();
-			if (!query) return state.classes;
-			return state.classes.filter((c) => c.toLowerCase().includes(query));
-		}),
-	};
-});
+const javaState: JavaViewState = {
+	get classes() {
+		return classes();
+	},
+	get classesLoading() {
+		return state.classesLoading;
+	},
+	get selectedClass() {
+		return state.selectedClass;
+	},
+	get methods() {
+		return methods();
+	},
+	get fields() {
+		return fields();
+	},
+	get instances() {
+		return instances();
+	},
+	get detailLoading() {
+		return state.detailLoading;
+	},
+	get available() {
+		return state.available;
+	},
+};
 
 function setClasses(classes: string[]): void {
-	setState({ classes, classesLoading: false });
+	setClassesData(classes);
+	setState({ classesLoading: false });
+}
+
+function clearJavaClasses(): void {
+	setClassesData([]);
+	setMethodsData([]);
+	setFieldsData([]);
+	setInstancesData([]);
+	setState({
+		classesLoading: false,
+		selectedClass: null,
+		detailLoading: false,
+	});
 }
 
 function selectClass(name: string | null): void {
+	setMethodsData([]);
+	setFieldsData([]);
+	setInstancesData([]);
 	setState({
 		selectedClass: name,
-		methods: [],
-		fields: [],
-		instances: [],
 	});
 }
 
 function setMethods(methods: JavaMethodInfo[]): void {
-	setState({ methods, detailLoading: false });
+	setMethodsData(methods);
+	setState({ detailLoading: false });
 }
 
 function setFields(fields: JavaFieldInfo[]): void {
-	setState("fields", fields);
+	setFieldsData(fields);
 }
 
 function setInstances(instances: unknown[]): void {
-	setState("instances", instances);
+	setInstancesData(instances);
 }
 
 function setAvailable(available: boolean): void {
@@ -132,17 +167,29 @@ function setDetailLoading(loading: boolean): void {
 
 function resetJavaState(): void {
 	setState(restoreStore(DEFAULT_STATE));
+	setClassesData([]);
+	setMethodsData([]);
+	setFieldsData([]);
+	setInstancesData([]);
 	setSearchQuery("");
 	setSubTab("methods");
 }
 
 function snapshotJavaState(): {
 	state: JavaState;
+	classes: string[];
+	methods: JavaMethodInfo[];
+	fields: JavaFieldInfo[];
+	instances: unknown[];
 	searchQuery: string;
 	subTab: JavaSubTab;
 } {
 	return {
 		state: snapshotStore(state),
+		classes: snapshotStore(classes()),
+		methods: snapshotStore(methods()),
+		fields: snapshotStore(fields()),
+		instances: snapshotStore(instances()),
 		searchQuery: searchQuery(),
 		subTab: subTab(),
 	};
@@ -150,6 +197,10 @@ function snapshotJavaState(): {
 
 function restoreJavaState(snapshot?: {
 	state: JavaState;
+	classes: string[];
+	methods: JavaMethodInfo[];
+	fields: JavaFieldInfo[];
+	instances: unknown[];
 	searchQuery: string;
 	subTab: JavaSubTab;
 }): void {
@@ -159,6 +210,10 @@ function restoreJavaState(snapshot?: {
 	}
 
 	setState(restoreStore(snapshot.state));
+	setClassesData(restoreStore(snapshot.classes));
+	setMethodsData(restoreStore(snapshot.methods));
+	setFieldsData(restoreStore(snapshot.fields));
+	setInstancesData(restoreStore(snapshot.instances));
 	setSearchQuery(snapshot.searchQuery);
 	setSubTab(snapshot.subTab);
 }
@@ -202,7 +257,7 @@ async function fetchJavaClasses(
 		const result = await invoke<string[]>("rpc_call", {
 			sessionId,
 			method: "enumerateJavaClasses",
-			params: { filter },
+			params: { filter, limit: JAVA_CLASS_RESULT_LIMIT },
 		});
 		if (shouldCommitRequest(sessionId, "classes", requestId)) {
 			scheduleTransition(() => {
@@ -316,20 +371,29 @@ async function hookJavaMethod(
 			return;
 		}
 		addHook(hook);
-		setState("methods", (method) => method.name === methodName, "hooked", true);
+		setMethodsData(
+			methods().map((method) =>
+				method.name === methodName ? { ...method, hooked: true } : method,
+			),
+		);
 	} catch (e) {
 		console.error("hookJavaMethod error:", e);
 	}
 }
 
 export {
-	state as javaState,
+	classes as javaClasses,
+	methods as javaMethods,
+	fields as javaFields,
+	instances as javaInstances,
+	javaState,
 	searchQuery as javaSearchQuery,
 	setSearchQuery as setJavaSearchQuery,
 	subTab as javaSubTab,
 	setSubTab as setJavaSubTab,
 	filteredClasses as filteredJavaClasses,
 	setClasses as setJavaClasses,
+	clearJavaClasses,
 	selectClass as selectJavaClass,
 	setMethods as setJavaMethods,
 	setFields as setJavaFields,

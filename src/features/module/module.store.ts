@@ -1,4 +1,4 @@
-import { createDeferred, createMemo, createRoot, createSignal } from "solid-js";
+import { createDeferred, createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { scheduleTransition } from "~/lib/scheduling";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
@@ -13,24 +13,23 @@ import type {
 export type ModuleSubTab = "exports" | "imports" | "symbols";
 
 interface ModuleState {
-	modules: ModuleInfo[];
 	loading: boolean;
 	selectedModule: string | null;
-	exports: ExportInfo[];
-	imports: ImportInfo[];
-	symbols: SymbolInfo[];
 	exportsLoading: boolean;
 	importsLoading: boolean;
 	symbolsLoading: boolean;
 }
 
+type ModuleViewState = ModuleState & {
+	modules: ModuleInfo[];
+	exports: ExportInfo[];
+	imports: ImportInfo[];
+	symbols: SymbolInfo[];
+};
+
 const DEFAULT_STATE: ModuleState = {
-	modules: [],
 	loading: false,
 	selectedModule: null,
-	exports: [],
-	imports: [],
-	symbols: [],
 	exportsLoading: false,
 	importsLoading: false,
 	symbolsLoading: false,
@@ -39,48 +38,54 @@ const DEFAULT_STATE: ModuleState = {
 const [state, setState] = createStore<ModuleState>({
 	...DEFAULT_STATE,
 });
+const [modules, setModulesData] = createSignal<ModuleInfo[]>([]);
+const [exportsData, setExportsData] = createSignal<ExportInfo[]>([]);
+const [importsData, setImportsData] = createSignal<ImportInfo[]>([]);
+const [symbolsData, setSymbolsData] = createSignal<SymbolInfo[]>([]);
 
 const [moduleSubTab, setModuleSubTab] = createSignal<ModuleSubTab>("exports");
 
 const [searchQuery, setSearchQuery] = createSignal("");
-const { filteredModules } = createRoot(() => {
-	const deferredSearchQuery = createDeferred(searchQuery);
-
-	return {
-		filteredModules: createMemo(() => {
-			const query = deferredSearchQuery().trim().toLowerCase();
-			if (!query) return state.modules;
-			return state.modules.filter(
-				(m) =>
-					m.name.toLowerCase().includes(query) ||
-					m.path.toLowerCase().includes(query),
-			);
-		}),
-	};
+const deferredSearchQuery = createDeferred(searchQuery);
+const filteredModules = createMemo(() => {
+	const query = deferredSearchQuery().trim().toLowerCase();
+	const items = modules();
+	if (!query) return items;
+	return items.filter(
+		(moduleInfo) =>
+			moduleInfo.name.toLowerCase().includes(query) ||
+			moduleInfo.path.toLowerCase().includes(query),
+	);
 });
 
 function setModules(modules: ModuleInfo[]): void {
 	scheduleTransition(() => {
-		setState({ modules, loading: false });
+		setModulesData(modules);
+		setState({ loading: false });
 	});
 }
 
 function selectModule(name: string | null): void {
 	scheduleTransition(() => {
-		setState({ selectedModule: name, exports: [], imports: [], symbols: [] });
+		setExportsData([]);
+		setImportsData([]);
+		setSymbolsData([]);
+		setState({ selectedModule: name });
 		setModuleSubTab("exports");
 	});
 }
 
 function setModuleExports(exports: ExportInfo[]): void {
 	scheduleTransition(() => {
-		setState({ exports, exportsLoading: false });
+		setExportsData(exports);
+		setState({ exportsLoading: false });
 	});
 }
 
 function setModuleImports(imports: ImportInfo[]): void {
 	scheduleTransition(() => {
-		setState({ imports, importsLoading: false });
+		setImportsData(imports);
+		setState({ importsLoading: false });
 	});
 }
 
@@ -94,17 +99,29 @@ function setExportsLoading(loading: boolean): void {
 
 function resetModuleState(): void {
 	setState(restoreStore(DEFAULT_STATE));
+	setModulesData([]);
+	setExportsData([]);
+	setImportsData([]);
+	setSymbolsData([]);
 	setModuleSubTab("exports");
 	setSearchQuery("");
 }
 
 function snapshotModuleState(): {
 	state: ModuleState;
+	modules: ModuleInfo[];
+	exports: ExportInfo[];
+	imports: ImportInfo[];
+	symbols: SymbolInfo[];
 	moduleSubTab: ModuleSubTab;
 	searchQuery: string;
 } {
 	return {
 		state: snapshotStore(state),
+		modules: snapshotStore(modules()),
+		exports: snapshotStore(exportsData()),
+		imports: snapshotStore(importsData()),
+		symbols: snapshotStore(symbolsData()),
 		moduleSubTab: moduleSubTab(),
 		searchQuery: searchQuery(),
 	};
@@ -112,6 +129,10 @@ function snapshotModuleState(): {
 
 function restoreModuleState(snapshot?: {
 	state: ModuleState;
+	modules: ModuleInfo[];
+	exports: ExportInfo[];
+	imports: ImportInfo[];
+	symbols: SymbolInfo[];
 	moduleSubTab: ModuleSubTab;
 	searchQuery: string;
 }): void {
@@ -121,12 +142,46 @@ function restoreModuleState(snapshot?: {
 	}
 
 	setState(restoreStore(snapshot.state));
+	setModulesData(restoreStore(snapshot.modules));
+	setExportsData(restoreStore(snapshot.exports));
+	setImportsData(restoreStore(snapshot.imports));
+	setSymbolsData(restoreStore(snapshot.symbols));
 	setModuleSubTab(snapshot.moduleSubTab);
 	setSearchQuery(snapshot.searchQuery);
 }
 
 const selectedModuleInfo = () =>
-	state.modules.find((m) => m.name === state.selectedModule) ?? null;
+	modules().find((moduleInfo) => moduleInfo.name === state.selectedModule) ?? null;
+
+const moduleState: ModuleViewState = {
+	get modules() {
+		return modules();
+	},
+	get loading() {
+		return state.loading;
+	},
+	get selectedModule() {
+		return state.selectedModule;
+	},
+	get exports() {
+		return exportsData();
+	},
+	get imports() {
+		return importsData();
+	},
+	get symbols() {
+		return symbolsData();
+	},
+	get exportsLoading() {
+		return state.exportsLoading;
+	},
+	get importsLoading() {
+		return state.importsLoading;
+	},
+	get symbolsLoading() {
+		return state.symbolsLoading;
+	},
+};
 
 async function fetchModules(sessionId: string): Promise<void> {
 	setLoading(true);
@@ -191,7 +246,8 @@ async function fetchModuleSymbols(
 			params: { moduleName },
 		});
 		scheduleTransition(() => {
-			setState({ symbols: result ?? [], symbolsLoading: false });
+			setSymbolsData(result ?? []);
+			setState({ symbolsLoading: false });
 		});
 	} catch (err) {
 		setState("symbolsLoading", false);
@@ -200,7 +256,11 @@ async function fetchModuleSymbols(
 }
 
 export {
-	state as moduleState,
+	modules as moduleItems,
+	exportsData as moduleExports,
+	importsData as moduleImports,
+	symbolsData as moduleSymbols,
+	moduleState,
 	searchQuery as moduleSearchQuery,
 	setSearchQuery as setModuleSearchQuery,
 	moduleSubTab,

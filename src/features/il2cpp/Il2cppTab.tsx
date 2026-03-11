@@ -12,7 +12,6 @@ import {
 	fetchIl2cppMethods,
 	fetchIl2cppFields,
 	hookIl2cppMethod,
-	unhookIl2cppMethod,
 	dumpIl2cppMetadata,
 } from "./il2cpp.store";
 import { hooksState, deleteHook } from "~/features/hooks/hooks.store";
@@ -24,7 +23,7 @@ import { InlineActions } from "~/components/InlineActions";
 import { navigateTo } from "~/lib/navigation";
 
 function Il2cppTab() {
-	const [dumpPath, setDumpPath] = createSignal<string | null>(null);
+	const [dumpSummary, setDumpSummary] = createSignal<string | null>(null);
 	const [dumping, setDumping] = createSignal(false);
 
 	createEffect(() => {
@@ -43,8 +42,8 @@ function Il2cppTab() {
 		const session = activeSession();
 		if (!session) return;
 		setDumping(true);
-		const path = await dumpIl2cppMetadata(session.id);
-		setDumpPath(path);
+		const summary = await dumpIl2cppMetadata(session.id);
+		setDumpSummary(summary);
 		setDumping(false);
 	}
 
@@ -88,13 +87,13 @@ function Il2cppTab() {
 				</div>
 			</div>
 
-			<Show when={dumpPath()}>
+			<Show when={dumpSummary()}>
 				<div class="flex items-center gap-2 border-b bg-success/5 px-4 py-1.5 text-xs text-success">
-					<span>Metadata dumped to:</span>
-					<span class="font-mono">{dumpPath()}</span>
+					<span>Metadata snapshot ready:</span>
+					<span class="font-mono">{dumpSummary()}</span>
 					<button
 						class="ml-auto cursor-pointer text-muted-foreground hover:text-foreground"
-						onClick={() => setDumpPath(null)}
+						onClick={() => setDumpSummary(null)}
 					>
 						&times;
 					</button>
@@ -248,12 +247,8 @@ function Il2cppTab() {
 																										method.address,
 																							);
 																						if (hook) {
-																							deleteHook(session.id, hook);
+																							void deleteHook(session.id, hook);
 																						}
-																						unhookIl2cppMethod(
-																							session.id,
-																							method.address,
-																						);
 																					}
 																				},
 																			}
@@ -263,13 +258,9 @@ function Il2cppTab() {
 																				onClick: (e: MouseEvent) => {
 																					e.stopPropagation();
 																					const session = activeSession();
-																					if (
-																						session &&
-																						il2cppState.selectedClass
-																					) {
-																						hookIl2cppMethod(
+																					if (session) {
+																						void hookIl2cppMethod(
 																							session.id,
-																							il2cppState.selectedClass,
 																							method.name,
 																							method.address,
 																						);

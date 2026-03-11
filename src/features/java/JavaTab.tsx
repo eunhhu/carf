@@ -1,9 +1,14 @@
-import { For, Show, createEffect } from "solid-js";
+import { For, Show, createDeferred, createEffect } from "solid-js";
 import {
   javaState,
+  javaClasses,
+  javaFields,
+  javaInstances,
+  javaMethods,
   filteredJavaClasses,
   javaSearchQuery,
   setJavaSearchQuery,
+  clearJavaClasses,
   selectJavaClass,
   javaSubTab,
   setJavaSubTab,
@@ -20,6 +25,7 @@ import { activeSession } from "~/features/session/session.store";
 import { SplitPane } from "~/components/SplitPane";
 import { CopyButton } from "~/components/CopyButton";
 import { InlineActions } from "~/components/InlineActions";
+import { VirtualList } from "~/components/VirtualList";
 import {
   ActionPopover,
   buildClassActions,
@@ -28,16 +34,30 @@ import { navigateTo } from "~/lib/navigation";
 import type { JavaMethodInfo } from "~/lib/types";
 
 function JavaTab() {
+  const deferredSearchQuery = createDeferred(javaSearchQuery);
+
   createEffect(() => {
     const sessionId = activeSession()?.id;
     if (!sessionId) return;
 
+    clearJavaClasses();
+
     void (async () => {
-      const available = await checkJavaAvailable(sessionId);
-      if (available && activeSession()?.id === sessionId) {
-        await fetchJavaClasses(sessionId);
-      }
+      await checkJavaAvailable(sessionId);
     })();
+  });
+
+  createEffect(() => {
+    const sessionId = activeSession()?.id;
+    if (!sessionId || javaState.available !== true) return;
+
+    const query = deferredSearchQuery().trim();
+    if (query.length < 2) {
+      clearJavaClasses();
+      return;
+    }
+
+    void fetchJavaClasses(sessionId, query);
   });
 
   function getMethodSignature(method: JavaMethodInfo): string {
@@ -73,14 +93,14 @@ function JavaTab() {
           </Show>
           <Show when={javaState.available === true}>
             <span class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-              {javaState.classes.length} classes
+              {javaClasses().length} classes
             </span>
           </Show>
         </div>
         <input
           type="text"
           class="rounded border bg-background px-2 py-1 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
-          placeholder="Search classes..."
+          placeholder="Search classes (2+ chars)..."
           value={javaSearchQuery()}
           onInput={(e) => setJavaSearchQuery(e.currentTarget.value)}
         />
@@ -93,54 +113,67 @@ function JavaTab() {
         maxLeft={400}
         defaultLeft={280}
         left={
-          <div class="h-full overflow-auto">
-            <Show
-              when={!javaState.classesLoading}
-              fallback={
-                <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
-                  Loading classes...
-                </div>
+          <Show
+            when={!javaState.classesLoading}
+            fallback={
+              <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
+                Loading classes...
+              </div>
+            }
+          >
+            <VirtualList
+              items={filteredJavaClasses()}
+              itemHeight={28}
+              resetKey={javaSearchQuery()}
+              class="h-full overflow-auto"
+              empty={
+                javaSearchQuery().trim().length < 2 ? (
+                  <div class="px-3 py-4 text-xs text-muted-foreground">
+                    Type at least 2 characters to search loaded classes
+                  </div>
+                ) : (
+                  <div class="px-3 py-4 text-xs text-muted-foreground">
+                    No matching classes found
+                  </div>
+                )
               }
             >
-              <For each={filteredJavaClasses()}>
-                {(className) => {
-                  const isSelected = () =>
-                    javaState.selectedClass === className;
-                  return (
-                    <button
-                      class={cn(
-                        "group/row flex w-full cursor-pointer items-center gap-1 px-3 py-1 text-left font-mono text-xs transition-colors hover:bg-surface-hover",
-                        isSelected() && "bg-muted",
-                      )}
-                      onClick={() => {
-                        selectJavaClass(className);
-                        const session = activeSession();
-                        if (session) {
-                          fetchJavaMethods(session.id, className);
-                          fetchJavaFields(session.id, className);
-                        }
-                      }}
+              {(className) => {
+                const isSelected = () => javaState.selectedClass === className;
+                return (
+                  <button
+                    class={cn(
+                      "group/row flex w-full cursor-pointer items-center gap-1 px-3 py-1 text-left font-mono text-xs transition-colors hover:bg-surface-hover",
+                      isSelected() && "bg-muted",
+                    )}
+                    onClick={() => {
+                      selectJavaClass(className);
+                      const session = activeSession();
+                      if (session) {
+                        fetchJavaMethods(session.id, className);
+                        fetchJavaFields(session.id, className);
+                      }
+                    }}
+                  >
+                    <ActionPopover
+                      type="class"
+                      value={className}
+                      actions={buildClassActions(className, "java")}
+                      class="truncate"
                     >
-                      <ActionPopover
-                        type="class"
-                        value={className}
-                        actions={buildClassActions(className, "java")}
-                        class="truncate"
-                      >
-                        <span class="truncate" title={className}>
-                          {className}
-                        </span>
-                      </ActionPopover>
-                      <CopyButton
-                        value={className}
-                        class="ml-auto opacity-0 group-hover/row:opacity-100"
-                      />
-                    </button>
-                  );
-                }}
-              </For>
-            </Show>
-          </div>
+                      <span class="truncate" title={className}>
+                        {className}
+                      </span>
+                    </ActionPopover>
+                    <CopyButton
+                      value={className}
+                      class="ml-auto opacity-0 group-hover/row:opacity-100"
+                    />
+                  </button>
+                );
+              }}
+            </VirtualList>
+          </Show>
         }
         right={
           <div class="h-full overflow-auto">
@@ -190,7 +223,7 @@ function JavaTab() {
                 {/* Methods */}
                 <Show when={javaSubTab() === "methods"}>
                   <div class="mt-2">
-                    <For each={javaState.methods}>
+                    <For each={javaMethods()}>
                       {(method) => {
                         const sig = () => getMethodSignature(method);
                         const hooked = () => method.hooked;
@@ -275,7 +308,7 @@ function JavaTab() {
                     </For>
                     <Show
                       when={
-                        javaState.methods.length === 0 &&
+                        javaMethods().length === 0 &&
                         !javaState.detailLoading
                       }
                     >
@@ -289,7 +322,7 @@ function JavaTab() {
                 {/* Fields */}
                 <Show when={javaSubTab() === "fields"}>
                   <div class="mt-2">
-                    <For each={javaState.fields}>
+                    <For each={javaFields()}>
                       {(field) => (
                         <div class="group/row flex items-center gap-2 py-0.5 text-xs">
                           <span class="text-muted-foreground">
@@ -312,7 +345,7 @@ function JavaTab() {
                     </For>
                     <Show
                       when={
-                        javaState.fields.length === 0 &&
+                        javaFields().length === 0 &&
                         !javaState.detailLoading
                       }
                     >
@@ -329,14 +362,14 @@ function JavaTab() {
                     <div class="mb-2 text-xs text-muted-foreground">
                       Heap instances via Java.choose()
                     </div>
-                    <For each={javaState.instances}>
+                    <For each={javaInstances()}>
                       {(instance, idx) => (
                         <div class="py-0.5 font-mono text-xs">
                           [{idx()}] {String(instance)}
                         </div>
                       )}
                     </For>
-                    <Show when={javaState.instances.length === 0}>
+                    <Show when={javaInstances().length === 0}>
                       <button
                         class="cursor-pointer rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90"
                         onClick={() => {

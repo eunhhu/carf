@@ -15,6 +15,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::api;
 use crate::error::AppError;
+use crate::services::ai::{self, AiChatRequest};
 use crate::services::frida::{AttachOptions, SpawnOptions};
 use crate::state::{AppState, BridgeEvent};
 
@@ -22,6 +23,15 @@ use crate::state::{AppState, BridgeEvent};
 #[serde(rename_all = "camelCase")]
 struct DeviceIdArgs {
     device_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListQueryArgs {
+    device_id: String,
+    query: Option<String>,
+    limit: Option<usize>,
+    force_refresh: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,7 +76,7 @@ struct RpcCallArgs {
 }
 
 pub async fn run() -> anyhow::Result<()> {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::new()?);
     let app = Router::new()
         .route("/", get(index))
         .route("/api/health", get(health))
@@ -237,16 +247,28 @@ fn dispatch(state: &AppState, command: &str, args: Value) -> Result<Value, AppEr
             )
         }
         "list_processes" => {
-            let args: DeviceIdArgs = parse_args(args)?;
+            let args: ListQueryArgs = parse_args(args)?;
             Ok(
-                serde_json::to_value(api::list_processes(state, args.device_id)?)
+                serde_json::to_value(api::list_processes(
+                    state,
+                    args.device_id,
+                    args.query,
+                    args.limit,
+                    args.force_refresh,
+                )?)
                     .map_err(|error| AppError::Internal(error.to_string()))?,
             )
         }
         "list_applications" => {
-            let args: DeviceIdArgs = parse_args(args)?;
+            let args: ListQueryArgs = parse_args(args)?;
             Ok(
-                serde_json::to_value(api::list_applications(state, args.device_id)?)
+                serde_json::to_value(api::list_applications(
+                    state,
+                    args.device_id,
+                    args.query,
+                    args.limit,
+                    args.force_refresh,
+                )?)
                     .map_err(|error| AppError::Internal(error.to_string()))?,
             )
         }
@@ -284,6 +306,12 @@ fn dispatch(state: &AppState, command: &str, args: Value) -> Result<Value, AppEr
         "rpc_call" => {
             let args: RpcCallArgs = parse_args(args)?;
             api::rpc_call(state, args.session_id, args.method, args.params)
+        }
+        "ai_chat" => {
+            let request: AiChatRequest = parse_args(args)?;
+            let response = ai::chat(&request)?;
+            serde_json::to_value(response)
+                .map_err(|error| AppError::Internal(error.to_string()))
         }
         _ => Err(AppError::Internal(format!(
             "Unsupported bridge command: {command}"

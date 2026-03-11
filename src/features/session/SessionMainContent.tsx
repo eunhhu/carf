@@ -26,6 +26,7 @@ const loadFilesTab = () => import("~/features/filesystem/FilesTab");
 const loadSwiftTab = () => import("~/features/swift/SwiftTab");
 const loadIl2cppTab = () => import("~/features/il2cpp/Il2cppTab");
 const loadAntiDetectTab = () => import("~/features/antidetect/AntiDetectTab");
+const loadAiTab = () => import("~/features/ai/AiTab");
 
 const TAB_LOADERS: Record<TabId, () => Promise<unknown>> = {
 	console: loadConsoleTab,
@@ -44,6 +45,7 @@ const TAB_LOADERS: Record<TabId, () => Promise<unknown>> = {
 	swift: loadSwiftTab,
 	il2cpp: loadIl2cppTab,
 	antidetect: loadAntiDetectTab,
+	ai: loadAiTab,
 };
 
 const TAB_PRELOADS: Partial<Record<TabId, TabId[]>> = {
@@ -63,6 +65,7 @@ const TAB_PRELOADS: Partial<Record<TabId, TabId[]>> = {
 	swift: ["hooks", "native"],
 	il2cpp: ["hooks", "native"],
 	antidetect: ["threads", "memory"],
+	ai: ["console", "hooks"],
 };
 
 // Lazy-load tab components for performance
@@ -82,6 +85,7 @@ const FilesTab = lazy(loadFilesTab);
 const SwiftTab = lazy(loadSwiftTab);
 const Il2cppTab = lazy(loadIl2cppTab);
 const AntiDetectTab = lazy(loadAntiDetectTab);
+const AiTab = lazy(loadAiTab);
 
 interface SessionMainContentProps {
 	activeTab: TabId;
@@ -160,6 +164,9 @@ export function SessionMainContent(props: SessionMainContentProps) {
 					</Match>
 					<Match when={props.activeTab === "antidetect"}>
 						<AntiDetectTab />
+					</Match>
+					<Match when={props.activeTab === "ai"}>
+						<AiTab />
 					</Match>
 				</Switch>
 			</Suspense>

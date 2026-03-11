@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -49,6 +50,7 @@ pub(super) fn get_device_arch(device: &FridaDevice<'static>) -> Result<Option<St
 }
 
 pub(super) fn resolve_attach_target(
+    device_id: &str,
     device: &FridaDevice<'static>,
     raw_device: *mut frida_sys::FridaDevice,
     target: &Value,
@@ -66,7 +68,7 @@ pub(super) fn resolve_attach_target(
 
     if let Some(target) = target.as_str() {
         if let Ok(pid) = target.parse::<u32>() {
-            return resolve_attach_target(device, raw_device, &Value::from(pid));
+            return resolve_attach_target(device_id, device, raw_device, &Value::from(pid));
         }
 
         if let Some(process) = processes
@@ -78,6 +80,11 @@ pub(super) fn resolve_attach_target(
 
         if let Some(result) =
             resolve_running_application_target(raw_device, processes.as_slice(), target)?
+        {
+            return Ok(result);
+        }
+
+        if let Some(result) = resolve_android_package_target(device_id, processes.as_slice(), target)
         {
             return Ok(result);
         }
@@ -148,6 +155,51 @@ fn resolve_running_application_target(
     }
 
     Ok(resolved)
+}
+
+fn resolve_android_package_target(
+    device_id: &str,
+    processes: &[frida::Process<'_>],
+    target: &str,
+) -> Option<(u32, String, Option<String>)> {
+    if !looks_like_android_package(target) {
+        return None;
+    }
+
+    let pid = adb_pidof(device_id, target)?;
+    let process_name = processes
+        .iter()
+        .find(|process| process.get_pid() == pid)
+        .map(|process| process.get_name().to_string())
+        .unwrap_or_else(|| target.to_string());
+
+    Some((pid, process_name, Some(target.to_string())))
+}
+
+fn looks_like_android_package(target: &str) -> bool {
+    target.contains('.')
+        && target
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':'))
+}
+
+fn adb_pidof(device_id: &str, target: &str) -> Option<u32> {
+    if matches!(device_id, "local" | "socket" | "barebone") {
+        return None;
+    }
+
+    let output = Command::new("adb")
+        .args(["-s", device_id, "shell", "pidof", target])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .find_map(|value| value.parse::<u32>().ok())
 }
 
 fn take_gerror_message(error: *mut frida_sys::GError) -> String {
@@ -232,6 +284,66 @@ pub(super) fn now_millis() -> u64 {
 
 pub(super) fn new_session_id() -> String {
     uuid::Uuid::new_v4().to_string()
+}
+
+fn adb_signal_process(device_id: &str, pid: u32, signal: &str) -> Result<(), AppError> {
+    let signal_command = format!("kill -{signal} {pid}");
+    let output = Command::new("adb")
+        .args(["-s", device_id, "shell", "su", "-c", signal_command.as_str()])
+        .output()
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                AppError::AdbNotFound
+            } else {
+                AppError::AdbError(error.to_string())
+            }
+        })?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let message = if stderr.is_empty() { stdout } else { stderr };
+    let normalized = message.to_ascii_lowercase();
+
+    if normalized.contains("device")
+        && normalized.contains("not found")
+        && normalized.contains(device_id)
+    {
+        return Err(AppError::AdbDeviceNotFound(device_id.to_string()));
+    }
+
+    if normalized.contains("permission denied")
+        || normalized.contains("inaccessible")
+        || normalized.contains("not allowed")
+        || normalized.contains("su: not found")
+    {
+        return Err(AppError::AdbRootRequired);
+    }
+
+    Err(AppError::AdbError(if message.is_empty() {
+        format!("failed to send SIG{signal} to pid {pid} on {device_id}")
+    } else {
+        message
+    }))
+}
+
+pub(super) fn pause_process_for_device(device_id: &str, pid: u32) -> Result<(), AppError> {
+    if device_id == "local" {
+        return pause_process(pid);
+    }
+
+    adb_signal_process(device_id, pid, "STOP")
+}
+
+pub(super) fn resume_process_for_device(device_id: &str, pid: u32) -> Result<(), AppError> {
+    if device_id == "local" {
+        return resume_process(pid);
+    }
+
+    adb_signal_process(device_id, pid, "CONT")
 }
 
 #[cfg(unix)]

@@ -1,13 +1,32 @@
 import { registerHandler } from "../rpc/router";
 import { findExportByName } from "../runtime/frida-compat";
 
-function hexEncode(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
+function hexEncode(bytes: Uint8Array): string {
   let hex = "";
   for (let i = 0; i < bytes.length; i++) {
     hex += bytes[i].toString(16).padStart(2, "0");
   }
   return hex;
+}
+
+function toUint8Array(data: unknown): Uint8Array {
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data);
+  }
+
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(
+      data.buffer,
+      data.byteOffset,
+      data.byteLength,
+    );
+  }
+
+  if (Array.isArray(data)) {
+    return Uint8Array.from(data);
+  }
+
+  throw new Error("Unsupported byte buffer type");
 }
 
 registerHandler("listDirectory", (params: unknown) => {
@@ -111,27 +130,36 @@ registerHandler("readFile", (params: unknown) => {
     encoding?: "hex" | "utf8";
   };
 
-  const file = new File(path, "rb");
-  if (offset > 0) file.seek(offset);
-
-  const chunkSize = size ?? 64 * 1024; // default 64KB
-  if (chunkSize > 64 * 1024 * 1024) throw new Error("Requested size exceeds 64MB limit");
-
-  const data = file.readBytes(chunkSize);
-  file.close();
-
-  if (!data) return "";
-
   if (encoding === "utf8") {
+    const textFile = new File(path, "r");
     try {
-      const decoder = new TextDecoder("utf-8", { fatal: false });
-      return decoder.decode(data as ArrayBuffer);
-    } catch {
-      // Fall through to hex
+      if (offset > 0) textFile.seek(offset);
+      const text = textFile.readText();
+      if (!text) return "";
+      if (typeof size === "number" && size > 0) {
+        return text.slice(0, size);
+      }
+      return text;
+    } finally {
+      textFile.close();
     }
   }
 
-  return hexEncode(data as ArrayBuffer);
+  const file = new File(path, "rb");
+  try {
+    if (offset > 0) file.seek(offset);
+
+    const chunkSize = size ?? 64 * 1024; // default 64KB
+    if (chunkSize > 64 * 1024 * 1024) throw new Error("Requested size exceeds 64MB limit");
+
+    const data = file.readBytes(chunkSize);
+    if (!data) return "";
+
+    const bytes = toUint8Array(data);
+    return hexEncode(bytes);
+  } finally {
+    file.close();
+  }
 });
 
 registerHandler("sqliteQuery", (params: unknown) => {

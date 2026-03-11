@@ -21,6 +21,28 @@ interface SwiftState {
 	available: boolean | null;
 }
 
+interface RawSwiftModule {
+	name: string;
+	path?: string;
+}
+
+interface RawSwiftMethodInfo {
+	name?: string;
+	mangledName?: string;
+	address?: string;
+	hooked?: boolean;
+}
+
+interface RawSwiftTypeInfo {
+	name: string;
+	kind?: string;
+	mangledName?: string;
+	metadataPointer?: string;
+	address?: string;
+	moduleName?: string;
+	methods?: RawSwiftMethodInfo[];
+}
+
 const DEFAULT_STATE: SwiftState = {
 	modules: [],
 	modulesLoading: false,
@@ -110,6 +132,50 @@ function restoreSwiftState(snapshot?: {
 	setSubTab(snapshot.subTab);
 }
 
+function normalizeSwiftKind(
+	kind: string | undefined,
+): SwiftTypeInfo["kind"] {
+	switch (kind) {
+		case "class":
+		case "struct":
+		case "enum":
+		case "protocol":
+			return kind;
+		default:
+			return "unknown";
+	}
+}
+
+function normalizeSwiftMethodInfo(
+	method: RawSwiftMethodInfo,
+): SwiftMethodInfo {
+	return {
+		name: method.name ?? "(anonymous)",
+		mangledName: method.mangledName ?? method.name ?? "",
+		address: method.address ?? "0x0",
+		hooked: method.hooked ?? false,
+	};
+}
+
+function normalizeSwiftTypeInfo(
+	moduleName: string,
+	type: RawSwiftTypeInfo,
+): SwiftTypeInfo {
+	return {
+		name: type.name,
+		mangledName:
+			type.mangledName ??
+			type.metadataPointer ??
+			type.address ??
+			type.name,
+		kind: normalizeSwiftKind(type.kind),
+		moduleName: type.moduleName ?? moduleName,
+		methods: Array.isArray(type.methods)
+			? type.methods.map(normalizeSwiftMethodInfo)
+			: [],
+	};
+}
+
 async function checkSwiftAvailable(sessionId: string): Promise<boolean> {
 	const requestId = beginRequest(sessionId, "availability");
 	try {
@@ -143,15 +209,18 @@ async function fetchSwiftModules(sessionId: string): Promise<void> {
 	const requestId = beginRequest(sessionId, "modules");
 	setState("modulesLoading", true);
 	try {
-		const result = await invoke<string[]>("rpc_call", {
+		const result = await invoke<Array<string | RawSwiftModule>>("rpc_call", {
 			sessionId,
 			method: "enumerateSwiftModules",
 			params: {},
 		});
+		const modules = result.map((entry) =>
+			typeof entry === "string" ? entry : entry.name,
+		);
 		if (shouldCommitRequest(sessionId, "modules", requestId)) {
 			scheduleTransition(() => {
 				if (shouldCommitRequest(sessionId, "modules", requestId)) {
-					setState({ modules: result, modulesLoading: false });
+					setState({ modules, modulesLoading: false });
 				}
 			});
 		}
@@ -174,15 +243,16 @@ async function fetchSwiftTypes(
 	const requestId = beginRequest(sessionId, "types");
 	setState("typesLoading", true);
 	try {
-		const result = await invoke<SwiftTypeInfo[]>("rpc_call", {
+		const result = await invoke<RawSwiftTypeInfo[]>("rpc_call", {
 			sessionId,
 			method: "enumerateSwiftTypes",
 			params: { moduleName },
 		});
+		const types = result.map((type) => normalizeSwiftTypeInfo(moduleName, type));
 		if (shouldCommitRequest(sessionId, "types", requestId)) {
 			scheduleTransition(() => {
 				if (shouldCommitRequest(sessionId, "types", requestId)) {
-					setState({ types: result, typesLoading: false });
+					setState({ types, typesLoading: false });
 				}
 			});
 		}
@@ -224,7 +294,7 @@ async function hookSwiftFunction(
 		const hook = await invoke<HookInfo>("rpc_call", {
 			sessionId,
 			method: "hookSwiftFunction",
-			params: { address, name },
+			params: { target: address || name },
 		});
 		if (activeSession()?.id !== sessionId) return;
 		addHook(hook);
@@ -241,21 +311,24 @@ async function hookSwiftFunction(
 
 async function unhookSwiftFunction(
 	sessionId: string,
-	address: string,
+	hookId: string,
+	address?: string,
 ): Promise<void> {
 	try {
 		await invoke<void>("rpc_call", {
 			sessionId,
 			method: "unhookSwiftFunction",
-			params: { address },
+			params: { hookId },
 		});
 		if (activeSession()?.id !== sessionId) return;
-		setState(
-			"methods",
-			(m) => m.address === address,
-			"hooked",
-			false,
-		);
+		if (address) {
+			setState(
+				"methods",
+				(m) => m.address === address,
+				"hooked",
+				false,
+			);
+		}
 	} catch (e) {
 		console.error("unhookSwiftFunction error:", e);
 	}

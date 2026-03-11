@@ -7,6 +7,7 @@
 		"dev": "vite",
 		"bridge:dev": "bun run scripts/bridge-dev.ts",
 		"bridge:api": "cargo run --manifest-path src-tauri/Cargo.toml --bin carf-bridge",
+		"java:hook-harness": "bun run scripts/java-hook-harness.ts",
 		"build": "tsc && vite build",
 		"preview": "vite preview",
 		"tauri": "tauri",

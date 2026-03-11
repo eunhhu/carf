@@ -10,7 +10,8 @@ use commands::{
         adb_connect, adb_device_props, adb_devices, adb_install_apk, adb_is_frida_running,
         adb_pair, adb_push_frida_server, adb_shell, adb_start_frida_server, adb_stop_frida_server,
     },
-    agent::rpc_call,
+    agent::{rpc_call, rpc_call_chunked},
+    ai::ai_chat,
     device::{add_remote_device, get_device_info, list_devices, remove_remote_device},
     process::{kill_process, list_applications, list_processes},
     session::{attach, detach, list_sessions, resume, spawn_and_attach},
@@ -24,7 +25,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .manage(AppState::new())
+        .manage(AppState::new().expect("failed to initialize CARF application state"))
         .setup(|app| {
             setup_event_forwarder(app);
             setup_device_change_listener(app);
@@ -48,6 +49,9 @@ pub fn run() {
             list_sessions,
             // Agent commands
             rpc_call,
+            rpc_call_chunked,
+            // AI commands
+            ai_chat,
             // ADB commands
             adb_devices,
             adb_device_props,

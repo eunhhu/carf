@@ -14,6 +14,7 @@ import {
 import { activeSession } from "~/features/session/session.store";
 import { SplitPane } from "~/components/SplitPane";
 import { CopyButton } from "~/components/CopyButton";
+import { VirtualList } from "~/components/VirtualList";
 import { cn } from "~/lib/cn";
 import { formatSize } from "~/lib/format";
 import { invoke } from "~/lib/tauri";
@@ -143,60 +144,62 @@ function FilesTab() {
         maxLeft={450}
         defaultLeft={300}
         left={
-          <div class="h-full overflow-auto border-r">
-            <Show
-              when={!filesystemState.entriesLoading}
-              fallback={
-                <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
-                  Loading...
-                </div>
-              }
-            >
-              <For each={filesystemState.entries}>
-                {(entry) => {
-                  const isSelected = () =>
-                    filesystemState.selectedFile?.path === entry.path;
-                  const isDir = () => entry.type === "directory";
-
-                  return (
-                    <button
-                      class={cn(
-                        "group/row flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-surface-hover",
-                        isSelected() && "bg-muted",
-                      )}
-                      onClick={() => handleEntryClick(entry)}
-                    >
-                      <span class="shrink-0">
-                        {isDir() ? (
-                          <Folder size={14} class="text-primary" />
-                        ) : entry.name.endsWith(".db") ||
-                          entry.name.endsWith(".sqlite") ? (
-                          <Database size={14} class="text-warning" />
-                        ) : entry.name.endsWith(".xml") ? (
-                          <FileCode size={14} class="text-success" />
-                        ) : (
-                          <File size={14} class="text-muted-foreground" />
-                        )}
-                      </span>
-                      <span class="flex-1 truncate">{entry.name}</span>
-                      <span class="shrink-0 text-muted-foreground">
-                        {entry.permissions}
-                      </span>
-                      <span class="w-16 shrink-0 text-right text-muted-foreground">
-                        {isDir() ? "" : formatSize(entry.size)}
-                      </span>
-                    </button>
-                  );
-                }}
-              </For>
-
-              <Show when={filesystemState.entries.length === 0}>
+          <Show
+            when={!filesystemState.entriesLoading}
+            fallback={
+              <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
+                Loading...
+              </div>
+            }
+          >
+            <VirtualList
+              items={filesystemState.entries}
+              itemHeight={34}
+              resetKey={filesystemState.currentPath}
+              class="h-full overflow-auto border-r"
+              empty={
                 <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
                   Empty directory or not loaded
                 </div>
-              </Show>
-            </Show>
-          </div>
+              }
+            >
+              {(entry) => {
+                const isSelected = () =>
+                  filesystemState.selectedFile?.path === entry.path;
+                const isDir = () => entry.type === "directory";
+
+                return (
+                  <button
+                    class={cn(
+                      "group/row flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-surface-hover",
+                      isSelected() && "bg-muted",
+                    )}
+                    onClick={() => handleEntryClick(entry)}
+                  >
+                    <span class="shrink-0">
+                      {isDir() ? (
+                        <Folder size={14} class="text-primary" />
+                      ) : entry.name.endsWith(".db") ||
+                        entry.name.endsWith(".sqlite") ? (
+                        <Database size={14} class="text-warning" />
+                      ) : entry.name.endsWith(".xml") ? (
+                        <FileCode size={14} class="text-success" />
+                      ) : (
+                        <File size={14} class="text-muted-foreground" />
+                      )}
+                    </span>
+                    <span class="flex-1 truncate">{entry.name}</span>
+                    <span class="shrink-0 text-muted-foreground">
+                      {entry.permissions}
+                    </span>
+                    <span class="w-16 shrink-0 text-right text-muted-foreground">
+                      {isDir() ? "" : formatSize(entry.size)}
+                    </span>
+                  </button>
+                );
+              }}
+            </VirtualList>
+          </Show>
         }
         right={
           <div class="h-full overflow-auto">

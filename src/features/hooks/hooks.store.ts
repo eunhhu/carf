@@ -112,7 +112,11 @@ function normalizeHookInfo(
 				: null;
 
 	const type =
-		record.type === "native" || record.type === "java" || record.type === "objc"
+		record.type === "native" ||
+		record.type === "java" ||
+		record.type === "objc" ||
+		record.type === "swift" ||
+		record.type === "il2cpp"
 			? record.type
 			: fallbackType;
 
@@ -162,7 +166,8 @@ function parseObjcTarget(
 
 async function fetchHooks(sessionId: string): Promise<void> {
 	try {
-		const [nativeHooks, javaHooks, objcHooks] = await Promise.all([
+		const [nativeHooks, javaHooks, objcHooks, swiftHooks, il2cppHooks] =
+			await Promise.all([
 			invoke<unknown[]>("rpc_call", {
 				sessionId,
 				method: "listHooks",
@@ -178,19 +183,30 @@ async function fetchHooks(sessionId: string): Promise<void> {
 				method: "listObjcHooks",
 				params: {},
 			}),
+			invoke<unknown[]>("rpc_call", {
+				sessionId,
+				method: "listSwiftHooks",
+				params: {},
+			}),
+			invoke<unknown[]>("rpc_call", {
+				sessionId,
+				method: "listIl2cppHooks",
+				params: {},
+			}),
 		]);
 
+		const sources: Array<[unknown[], HookInfo["type"]]> = [
+			[nativeHooks, "native"],
+			[javaHooks, "java"],
+			[objcHooks, "objc"],
+			[swiftHooks, "swift"],
+			[il2cppHooks, "il2cpp"],
+		];
+
 		setHooks(
-			[...nativeHooks, ...javaHooks, ...objcHooks]
-				.map((hook, index) =>
-					normalizeHookInfo(
-						hook,
-						index < nativeHooks.length
-							? "native"
-							: index < nativeHooks.length + javaHooks.length
-								? "java"
-								: "objc",
-					),
+			sources
+				.flatMap(([hooks, type]) =>
+					hooks.map((hook) => normalizeHookInfo(hook, type)),
 				)
 				.filter((hook): hook is HookInfo => hook !== null),
 		);
@@ -213,7 +229,11 @@ async function toggleHook(
 					? "setNativeHookActive"
 					: hook.type === "java"
 						? "setJavaHookActive"
-						: "setObjcHookActive",
+						: hook.type === "objc"
+							? "setObjcHookActive"
+							: hook.type === "swift"
+								? "setSwiftHookActive"
+								: "setIl2cppHookActive",
 			params: { hookId: hook.id, active },
 		});
 		updateHookStatus(hook.id, active);
@@ -232,7 +252,11 @@ async function deleteHook(sessionId: string, hook: HookInfo): Promise<void> {
 					? "unhookFunction"
 					: hook.type === "java"
 						? "unhookJavaMethod"
-						: "unhookObjcMethod",
+						: hook.type === "objc"
+							? "unhookObjcMethod"
+							: hook.type === "swift"
+								? "unhookSwiftFunction"
+								: "unhookIl2cppMethod",
 			params: { hookId: hook.id },
 		});
 		removeHook(hook.id);
@@ -289,6 +313,33 @@ async function importHookConfigs(
 					params: { ...parsed },
 				});
 				const hook = normalizeHookInfo(result, "objc");
+				if (hook) {
+					addHook(hook);
+				}
+			} else if (config.type === "swift") {
+				const result = await invoke<unknown>("rpc_call", {
+					sessionId,
+					method: "hookSwiftFunction",
+					params: {
+						target: config.address ?? config.target,
+						...config.options,
+					},
+				});
+				const hook = normalizeHookInfo(result, "swift");
+				if (hook) {
+					addHook(hook);
+				}
+			} else if (config.type === "il2cpp") {
+				const result = await invoke<unknown>("rpc_call", {
+					sessionId,
+					method: "hookIl2cppMethod",
+					params: {
+						address: config.address ?? config.target,
+						methodName: config.target,
+						...config.options,
+					},
+				});
+				const hook = normalizeHookInfo(result, "il2cpp");
 				if (hook) {
 					addHook(hook);
 				}

@@ -7,6 +7,6 @@ mod util;
 pub use runtime::FridaService;
 #[allow(unused_imports)]
 pub use types::{
-    AppInfo, AttachOptions, DeviceInfo, DeviceStatus, DeviceType, OsInfo, OsPlatform, ProcessInfo,
-    SpawnOptions,
+    AppInfo, AttachOptions, CollectionPage, DeviceInfo, DeviceStatus, DeviceType, OsInfo,
+    OsPlatform, ProcessInfo, SpawnOptions,
 };

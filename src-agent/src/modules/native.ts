@@ -15,7 +15,6 @@ interface HookEntry {
 }
 
 const hooks = new Map<string, HookEntry>();
-let hookCounter = 0;
 
 function toHookInfo(hook: HookEntry) {
   return {
@@ -64,7 +63,7 @@ registerHandler("hookFunction", (params: unknown) => {
   };
 
   const addr = resolveTarget(target);
-  const hookId = `native_hook_${++hookCounter}`;
+  const hookId = `native_hook_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   const listener = Interceptor.attach(addr, {
     onEnter(args) {

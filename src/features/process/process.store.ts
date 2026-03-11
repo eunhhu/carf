@@ -1,4 +1,4 @@
-import { createDeferred, createMemo, createRoot } from "solid-js";
+import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { addSession, setAppView } from "~/features/session/session.store";
 import { scheduleTransition } from "~/lib/scheduling";
@@ -19,9 +19,23 @@ interface SelectedTarget {
 	identifier?: string;
 }
 
+interface CollectionPage<T> {
+	items: T[];
+	total: number;
+	limit: number;
+	truncated: boolean;
+	query?: string | null;
+}
+
+interface RefreshOptions {
+	forceRefresh?: boolean;
+}
+
 interface ProcessState {
-	processes: ProcessInfo[];
-	applications: AppInfo[];
+	processesTotal: number;
+	processesTruncated: boolean;
+	applicationsTotal: number;
+	applicationsTruncated: boolean;
 	selectedTarget: SelectedTarget | null;
 	loading: boolean;
 	error: string | null;
@@ -29,9 +43,20 @@ interface ProcessState {
 	showMode: ShowMode;
 }
 
+const DEFAULT_LIST_LIMIT = 200;
+const requestVersions = {
+	processes: 0,
+	applications: 0,
+};
+
+const [processes, setProcesses] = createSignal<ProcessInfo[]>([]);
+const [applications, setApplications] = createSignal<AppInfo[]>([]);
+
 const [state, setState] = createStore<ProcessState>({
-	processes: [],
-	applications: [],
+	processesTotal: 0,
+	processesTruncated: false,
+	applicationsTotal: 0,
+	applicationsTruncated: false,
 	selectedTarget: null,
 	loading: false,
 	error: null,
@@ -39,42 +64,55 @@ const [state, setState] = createStore<ProcessState>({
 	showMode: "processes",
 });
 
-const { filteredProcesses, filteredApplications } = createRoot(() => {
-	const deferredSearchQuery = createDeferred(() => state.searchQuery);
+function normalizeSearchQuery(query: string): string | undefined {
+	const trimmed = query.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}
 
-	return {
-		filteredProcesses: createMemo(() => {
-			const q = deferredSearchQuery().trim().toLowerCase();
-			if (!q) return state.processes;
-			return state.processes.filter(
-				(p) =>
-					p.name.toLowerCase().includes(q) ||
-					String(p.pid).includes(q) ||
-					(p.identifier?.toLowerCase().includes(q) ?? false),
-			);
-		}),
-		filteredApplications: createMemo(() => {
-			const q = deferredSearchQuery().trim().toLowerCase();
-			if (!q) return state.applications;
-			return state.applications.filter(
-				(a) =>
-					a.name.toLowerCase().includes(q) ||
-					a.identifier.toLowerCase().includes(q),
-			);
-		}),
-	};
-});
+function beginRequest(kind: keyof typeof requestVersions): number {
+	requestVersions[kind] += 1;
+	return requestVersions[kind];
+}
 
-async function refreshProcesses(deviceId: string): Promise<void> {
+function isCurrentRequest(
+	kind: keyof typeof requestVersions,
+	requestId: number,
+): boolean {
+	return requestVersions[kind] === requestId;
+}
+
+async function refreshProcesses(
+	deviceId: string,
+	query = state.searchQuery,
+	options?: RefreshOptions,
+): Promise<void> {
+	const requestId = beginRequest("processes");
 	setState({ loading: true, error: null });
 	try {
-		const processes = await invoke<ProcessInfo[]>("list_processes", {
+		const result = await invoke<CollectionPage<ProcessInfo>>("list_processes", {
 			deviceId,
+			query: normalizeSearchQuery(query),
+			limit: DEFAULT_LIST_LIMIT,
+			forceRefresh: options?.forceRefresh ?? false,
 		});
+		if (!isCurrentRequest("processes", requestId)) {
+			return;
+		}
 		scheduleTransition(() => {
-			setState({ processes, loading: false });
+			if (!isCurrentRequest("processes", requestId)) {
+				return;
+			}
+			setProcesses(result.items);
+			setState({
+				processesTotal: result.total,
+				processesTruncated: result.truncated,
+				loading: false,
+			});
 		});
 	} catch (err) {
+		if (!isCurrentRequest("processes", requestId)) {
+			return;
+		}
 		setState({
 			loading: false,
 			error: err instanceof Error ? err.message : String(err),
@@ -82,16 +120,38 @@ async function refreshProcesses(deviceId: string): Promise<void> {
 	}
 }
 
-async function refreshApplications(deviceId: string): Promise<void> {
+async function refreshApplications(
+	deviceId: string,
+	query = state.searchQuery,
+	options?: RefreshOptions,
+): Promise<void> {
+	const requestId = beginRequest("applications");
 	setState({ loading: true, error: null });
 	try {
-		const applications = await invoke<AppInfo[]>("list_applications", {
+		const result = await invoke<CollectionPage<AppInfo>>("list_applications", {
 			deviceId,
+			query: normalizeSearchQuery(query),
+			limit: DEFAULT_LIST_LIMIT,
+			forceRefresh: options?.forceRefresh ?? false,
 		});
+		if (!isCurrentRequest("applications", requestId)) {
+			return;
+		}
 		scheduleTransition(() => {
-			setState({ applications, loading: false });
+			if (!isCurrentRequest("applications", requestId)) {
+				return;
+			}
+			setApplications(result.items);
+			setState({
+				applicationsTotal: result.total,
+				applicationsTruncated: result.truncated,
+				loading: false,
+			});
 		});
 	} catch (err) {
+		if (!isCurrentRequest("applications", requestId)) {
+			return;
+		}
 		setState({
 			loading: false,
 			error: err instanceof Error ? err.message : String(err),
@@ -193,9 +253,9 @@ async function spawnAndAttach(
 }
 
 export {
+	processes,
+	applications,
 	state as processState,
-	filteredProcesses,
-	filteredApplications,
 	refreshProcesses,
 	refreshApplications,
 	selectTarget,

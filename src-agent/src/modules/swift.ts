@@ -13,7 +13,6 @@ interface SwiftHookEntry {
 }
 
 const swiftHooks = new Map<string, SwiftHookEntry>();
-let hookCounter = 0;
 
 function toHookInfo(hook: SwiftHookEntry) {
   return {
@@ -315,7 +314,7 @@ registerHandler("hookSwiftFunction", (params: unknown) => {
     // Keep the original target name
   }
 
-  const hookId = `swift_hook_${++hookCounter}`;
+  const hookId = `swift_hook_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   const listener = Interceptor.attach(addr, {
     onEnter(args) {
