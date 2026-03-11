@@ -2,10 +2,12 @@ import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { recordHookEvent } from "~/features/hooks/hooks.store";
 import {
+	extractEventSessionId,
 	normalizeConsoleMessagePayload,
 	normalizeHookEventPayload,
 } from "~/lib/event-normalizers";
 import { generateId } from "~/lib/format";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke, listen } from "~/lib/tauri";
 import type {
 	ConsoleLevel,
@@ -25,11 +27,15 @@ interface ConsoleState {
 	replHistory: string[];
 }
 
-const [state, setState] = createStore<ConsoleState>({
+const DEFAULT_STATE: ConsoleState = {
 	messages: [],
 	hookEvents: [],
 	systemMessages: [],
 	replHistory: [],
+};
+
+const [state, setState] = createStore<ConsoleState>({
+	...DEFAULT_STATE,
 });
 
 // Filters
@@ -89,6 +95,44 @@ function clearHookEvents(): void {
 	setState("hookEvents", []);
 }
 
+function resetConsoleState(): void {
+	setState(restoreStore(DEFAULT_STATE));
+	setLevelFilter("all");
+	setSourceFilter("all");
+	setConsolePanelTab("console");
+}
+
+function snapshotConsoleState(): {
+	state: ConsoleState;
+	levelFilter: ConsoleLevel | "all";
+	sourceFilter: ConsoleSource | "all";
+	consolePanelTab: ConsolePanelTab;
+} {
+	return {
+		state: snapshotStore(state),
+		levelFilter: levelFilter(),
+		sourceFilter: sourceFilter(),
+		consolePanelTab: consolePanelTab(),
+	};
+}
+
+function restoreConsoleState(snapshot?: {
+	state: ConsoleState;
+	levelFilter: ConsoleLevel | "all";
+	sourceFilter: ConsoleSource | "all";
+	consolePanelTab: ConsolePanelTab;
+}): void {
+	if (!snapshot) {
+		resetConsoleState();
+		return;
+	}
+
+	setState(restoreStore(snapshot.state));
+	setLevelFilter(snapshot.levelFilter);
+	setSourceFilter(snapshot.sourceFilter);
+	setConsolePanelTab(snapshot.consolePanelTab);
+}
+
 const filteredMessages = () => {
 	let msgs = state.messages;
 	const level = levelFilter();
@@ -106,14 +150,11 @@ async function evaluateCode(sessionId: string, code: string): Promise<void> {
 	addReplEntry(code);
 	addMessage("info", "user", `> ${code}`);
 	try {
-		const result = await invoke<unknown>("rpc_call", {
+		await invoke<unknown>("rpc_call", {
 			sessionId,
 			method: "evaluate",
 			params: { code },
 		});
-		const resultStr =
-			typeof result === "string" ? result : JSON.stringify(result);
-		addMessage("log", "agent", resultStr);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		addMessage("error", "agent", message);
@@ -127,11 +168,17 @@ function setupConsoleListeners(sessionId: string): () => void {
 		content: string;
 		data?: unknown;
 	}>("carf://console/message", (payload) => {
+		if (extractEventSessionId(payload) !== sessionId) {
+			return;
+		}
 		const message = normalizeConsoleMessagePayload(payload);
 		addMessage(message.level, message.source, message.content, message.data);
 	});
 
 	const unlistenHook = listen<HookEvent>("carf://hook/event", (payload) => {
+		if (extractEventSessionId(payload) !== sessionId) {
+			return;
+		}
 		const event = normalizeHookEventPayload(payload);
 		addHookEvent(event);
 		recordHookEvent(event);
@@ -161,6 +208,9 @@ export {
 	addReplEntry,
 	clearMessages,
 	clearHookEvents,
+	resetConsoleState,
+	snapshotConsoleState,
+	restoreConsoleState,
 	levelFilter,
 	setLevelFilter,
 	sourceFilter,

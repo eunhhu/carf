@@ -1,7 +1,9 @@
 import { createStore } from "solid-js/store";
 import { createSignal } from "solid-js";
+import { extractEventSessionId } from "~/lib/event-normalizers";
 import type { MemoryRange, ScanResult } from "~/lib/types";
-import { invoke } from "~/lib/tauri";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
+import { invoke, listen } from "~/lib/tauri";
 
 export type MemorySubMode = "map" | "hex" | "search" | "monitor";
 
@@ -18,7 +20,7 @@ interface MemoryState {
   monitorActive: boolean;
 }
 
-const [state, setState] = createStore<MemoryState>({
+const DEFAULT_STATE: MemoryState = {
   ranges: [],
   rangesLoading: false,
   hexAddress: null,
@@ -29,6 +31,10 @@ const [state, setState] = createStore<MemoryState>({
   searchProgress: 0,
   searching: false,
   monitorActive: false,
+};
+
+const [state, setState] = createStore<MemoryState>({
+  ...DEFAULT_STATE,
 });
 
 const [subMode, setSubMode] = createSignal<MemorySubMode>("map");
@@ -64,6 +70,34 @@ function setRangesLoading(loading: boolean): void {
 
 function setHexLoading(loading: boolean): void {
   setState("hexLoading", loading);
+}
+
+function resetMemoryState(): void {
+  setState(restoreStore(DEFAULT_STATE));
+  setSubMode("map");
+}
+
+function snapshotMemoryState(): {
+  state: MemoryState;
+  subMode: MemorySubMode;
+} {
+  return {
+    state: snapshotStore(state),
+    subMode: subMode(),
+  };
+}
+
+function restoreMemoryState(snapshot?: {
+  state: MemoryState;
+  subMode: MemorySubMode;
+}): void {
+  if (!snapshot) {
+    resetMemoryState();
+    return;
+  }
+
+  setState(restoreStore(snapshot.state));
+  setSubMode(snapshot.subMode);
 }
 
 async function fetchRanges(sessionId: string): Promise<void> {
@@ -123,17 +157,48 @@ async function searchMemory(
   sessionId: string,
   pattern: string,
 ): Promise<void> {
-  setSearching(true);
+  setState({
+    searchPattern: pattern,
+    searchResults: [],
+    searchProgress: 0,
+    searching: true,
+  });
+  const unlistenProgress = listen<{ progress?: number }>(
+    "carf://scan/progress",
+    (payload) => {
+      if (extractEventSessionId(payload) !== sessionId) {
+        return;
+      }
+      if (typeof payload.progress === "number") {
+        setSearchProgress(payload.progress);
+      }
+    },
+  );
+  const unlistenResult = listen<{ results?: ScanResult[] }>(
+    "carf://scan/result",
+    (payload) => {
+      if (extractEventSessionId(payload) !== sessionId) {
+        return;
+      }
+      if (Array.isArray(payload.results)) {
+        setSearchResults(payload.results);
+      }
+    },
+  );
+
   try {
     const result = await invoke<ScanResult[]>("rpc_call", {
       sessionId,
       method: "scanMemory",
-      params: { pattern, protection: "r--" },
+      params: { pattern, ranges: "r--" },
     });
     setSearchResults(result);
   } catch (e) {
     setState({ searching: false });
     console.error("searchMemory error:", e);
+  } finally {
+    unlistenProgress();
+    unlistenResult();
   }
 }
 
@@ -149,6 +214,9 @@ export {
   setMonitorActive,
   setRangesLoading,
   setHexLoading,
+  resetMemoryState,
+  snapshotMemoryState,
+  restoreMemoryState,
   fetchRanges,
   readMemoryAt,
   writeMemoryAt,

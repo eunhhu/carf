@@ -1,4 +1,5 @@
-import { For, Show, createEffect } from "solid-js";
+import { For, Show, createEffect, createSignal } from "solid-js";
+import { ArrowLeft } from "lucide-solid";
 import {
   processState,
   filteredProcesses,
@@ -16,9 +17,11 @@ import { selectedDevice } from "~/features/device/device.store";
 import { setAppView } from "~/features/session/session.store";
 import { cn } from "~/lib/cn";
 import type { ProcessInfo, AppInfo } from "~/lib/types";
+import AttachModal, { type AttachModalOptions } from "./AttachModal";
 
 export default function ProcessPanel() {
   const device = selectedDevice;
+  const [modalOpen, setModalOpen] = createSignal(false);
 
   createEffect(() => {
     const d = device();
@@ -40,18 +43,60 @@ export default function ProcessPanel() {
     }
   }
 
-  function handleAttach() {
+  function openModal() {
+    if (!processState.selectedTarget) return;
+    setModalOpen(true);
+  }
+
+  function handleModalConfirm(opts: AttachModalOptions) {
     const d = device();
     const t = processState.selectedTarget;
     if (!d || !t) return;
-    attachToProcess(d.id, t);
+
+    setModalOpen(false);
+
+    if (opts.mode === "attach") {
+      attachToProcess(d.id, t, {
+        realm: opts.realm,
+        runtime: opts.runtime,
+        persistTimeout: opts.persistTimeout,
+        enableChildGating: opts.enableChildGating,
+        scriptPath: opts.scriptPath.trim() || undefined,
+      });
+    } else {
+      if (!t.identifier) return;
+      const argv = opts.argv.trim()
+        ? opts.argv.split(",").map((s) => s.trim())
+        : undefined;
+      const envp = opts.envp.trim()
+        ? Object.fromEntries(
+            opts.envp
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => line.includes("="))
+              .map((line) => {
+                const idx = line.indexOf("=");
+                return [line.slice(0, idx), line.slice(idx + 1)];
+              }),
+          )
+        : undefined;
+      spawnAndAttach(d.id, t.identifier, {
+        argv,
+        envp,
+        cwd: opts.cwd.trim() || undefined,
+        stdio: opts.stdio,
+        autoResume: opts.autoResume,
+        realm: opts.realm,
+        persistTimeout: opts.persistTimeout,
+        runtime: opts.runtime,
+        enableChildGating: opts.enableChildGating,
+        scriptPath: opts.scriptPath.trim() || undefined,
+      });
+    }
   }
 
-  function handleSpawn() {
-    const d = device();
-    const t = processState.selectedTarget;
-    if (!d || !t || !t.identifier) return;
-    spawnAndAttach(d.id, t.identifier);
+  function handleModalCancel() {
+    setModalOpen(false);
   }
 
   function handleKill() {
@@ -66,6 +111,14 @@ export default function ProcessPanel() {
   const selectionHasIdentifier = () =>
     processState.selectedTarget?.identifier != null;
 
+  const modalTargetLabel = () => {
+    const t = processState.selectedTarget;
+    if (!t) return "";
+    if (t.pid != null && t.identifier) return `PID ${t.pid} — ${t.identifier}`;
+    if (t.pid != null) return `PID ${t.pid}`;
+    return t.identifier ?? "";
+  };
+
   return (
     <div class="flex h-full flex-col bg-background">
       {/* Header toolbar */}
@@ -75,7 +128,7 @@ export default function ProcessPanel() {
           class="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
           onClick={() => setAppView("device")}
         >
-          <span class="text-sm">&larr;</span>
+          <ArrowLeft size={14} />
           Back
         </button>
 
@@ -287,7 +340,7 @@ export default function ProcessPanel() {
                 <Show when={selectionHasPid()}>
                   <button
                     class="w-full rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                    onClick={handleAttach}
+                    onClick={openModal}
                     disabled={processState.loading}
                   >
                     Attach
@@ -298,7 +351,7 @@ export default function ProcessPanel() {
                 <Show when={processState.showMode === "apps" && selectionHasIdentifier()}>
                   <button
                     class="w-full rounded-md border px-3 py-2 text-xs font-medium transition-colors hover:bg-surface-hover disabled:opacity-50"
-                    onClick={handleSpawn}
+                    onClick={openModal}
                     disabled={processState.loading}
                   >
                     Spawn &amp; Attach
@@ -320,6 +373,16 @@ export default function ProcessPanel() {
           </Show>
         </div>
       </div>
+
+      {/* Attach/Spawn options modal */}
+      <AttachModal
+        open={modalOpen()}
+        canAttach={selectionHasPid()}
+        canSpawn={selectionHasIdentifier()}
+        targetLabel={modalTargetLabel()}
+        onConfirm={handleModalConfirm}
+        onCancel={handleModalCancel}
+      />
     </div>
   );
 }

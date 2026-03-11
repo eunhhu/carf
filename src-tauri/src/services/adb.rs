@@ -1,8 +1,10 @@
+use std::collections::HashMap;
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
+use crate::services::frida::{AppInfo, ProcessInfo};
 
 // ─── ADB types ────────────────────────────────────────────────────────────────
 
@@ -45,16 +47,13 @@ impl AdbService {
 
     /// Runs an adb command and returns stdout as a String.
     fn run(&self, args: &[&str]) -> Result<String, AppError> {
-        let output = Command::new("adb")
-            .args(args)
-            .output()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    AppError::AdbNotFound
-                } else {
-                    AppError::AdbError(e.to_string())
-                }
-            })?;
+        let output = Command::new("adb").args(args).output().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                AppError::AdbNotFound
+            } else {
+                AppError::AdbError(e.to_string())
+            }
+        })?;
 
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
@@ -75,6 +74,31 @@ impl AdbService {
     fn getprop(&self, serial: &str, prop: &str) -> Result<String, AppError> {
         let out = self.run_on(serial, &["shell", "getprop", prop])?;
         Ok(out.trim().to_string())
+    }
+
+    fn infer_process_identifier(process: &ProcessInfo) -> Option<&str> {
+        process.identifier.as_deref().or_else(|| {
+            if process.name.contains('.') {
+                Some(process.name.as_str())
+            } else {
+                None
+            }
+        })
+    }
+
+    fn parse_package_identifier(line: &str) -> Option<&str> {
+        let package = line.trim().strip_prefix("package:")?;
+        let identifier = package
+            .split_once('=')
+            .map(|(_, identifier)| identifier)
+            .unwrap_or(package)
+            .trim();
+
+        if identifier.is_empty() {
+            None
+        } else {
+            Some(identifier)
+        }
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -169,6 +193,41 @@ impl AdbService {
         })
     }
 
+    /// Lists installed Android packages visible to `pm list packages`.
+    pub fn list_applications(
+        &self,
+        serial: &str,
+        running_processes: &[ProcessInfo],
+    ) -> Result<Vec<AppInfo>, AppError> {
+        let output = self.run_on(serial, &["shell", "pm", "list", "packages"])?;
+        let pid_by_identifier: HashMap<&str, u32> = running_processes
+            .iter()
+            .filter_map(|process| {
+                Self::infer_process_identifier(process).map(|identifier| (identifier, process.pid))
+            })
+            .collect();
+
+        let mut applications = output
+            .lines()
+            .filter_map(Self::parse_package_identifier)
+            .map(|identifier| AppInfo {
+                identifier: identifier.to_string(),
+                name: identifier.to_string(),
+                pid: pid_by_identifier.get(identifier).copied(),
+                icon: None,
+            })
+            .collect::<Vec<_>>();
+
+        applications.sort_by(|left, right| {
+            left.name
+                .cmp(&right.name)
+                .then(left.identifier.cmp(&right.identifier))
+        });
+        applications.dedup_by(|left, right| left.identifier == right.identifier);
+
+        Ok(applications)
+    }
+
     /// Pushes a frida-server binary to the device at `/data/local/tmp/frida-server`.
     pub fn push_frida_server(
         &self,
@@ -193,12 +252,7 @@ impl AdbService {
     pub fn start_frida_server(&self, serial: &str) -> Result<(), AppError> {
         self.run_on(
             serial,
-            &[
-                "shell",
-                "nohup",
-                "/data/local/tmp/frida-server",
-                "&",
-            ],
+            &["shell", "nohup", "/data/local/tmp/frida-server", "&"],
         )?;
         Ok(())
     }

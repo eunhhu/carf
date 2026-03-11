@@ -2,13 +2,18 @@ import { createStore } from "solid-js/store";
 import { createSignal } from "solid-js";
 import type { PinItem, TabId } from "~/lib/types";
 import { generateId } from "~/lib/format";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 
 interface PinboardState {
   items: PinItem[];
 }
 
-const [state, setState] = createStore<PinboardState>({
+const DEFAULT_STATE: PinboardState = {
   items: [],
+};
+
+const [state, setState] = createStore<PinboardState>({
+  ...DEFAULT_STATE,
 });
 
 const [typeFilter, setTypeFilter] = createSignal<PinItem["type"] | "all">(
@@ -95,7 +100,31 @@ function importPins(json: string): number {
 }
 
 function clearPins(): void {
-  setState("items", []);
+  setState(restoreStore(DEFAULT_STATE));
+}
+
+function snapshotPinboardState(): {
+  state: PinboardState;
+  typeFilter: PinItem["type"] | "all";
+} {
+  return {
+    state: snapshotStore(state),
+    typeFilter: typeFilter(),
+  };
+}
+
+function restorePinboardState(snapshot?: {
+  state: PinboardState;
+  typeFilter: PinItem["type"] | "all";
+}): void {
+  if (!snapshot) {
+    clearPins();
+    setTypeFilter("all");
+    return;
+  }
+
+  setState(restoreStore(snapshot.state));
+  setTypeFilter(snapshot.typeFilter);
 }
 
 export {
@@ -112,4 +141,6 @@ export {
   exportPins,
   importPins,
   clearPins,
+  snapshotPinboardState,
+  restorePinboardState,
 };

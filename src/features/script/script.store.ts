@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
 
 interface ScriptTemplate {
@@ -17,17 +18,11 @@ interface ScriptState {
 	templates: ScriptTemplate[];
 }
 
-const [state, setState] = createStore<ScriptState>({
-	code: "",
-	loaded: false,
-	loading: false,
-	error: null,
-	scriptPath: null,
-	templates: [
-		{
-			name: "SSL Pinning Bypass",
-			description: "Bypass SSL certificate pinning",
-			code: `// SSL Pinning Bypass
+const DEFAULT_TEMPLATES: ScriptTemplate[] = [
+	{
+		name: "SSL Pinning Bypass",
+		description: "Bypass SSL certificate pinning",
+		code: `// SSL Pinning Bypass
 Java.perform(function() {
   var TrustManager = Java.registerClass({
     name: "carf.TrustManager",
@@ -44,11 +39,11 @@ Java.perform(function() {
   SSLContext.setDefault(ctx);
   send({ type: "log", data: "SSL Pinning bypassed" });
 });`,
-		},
-		{
-			name: "Root Detection Bypass",
-			description: "Bypass common root detection checks",
-			code: `// Root Detection Bypass
+	},
+	{
+		name: "Root Detection Bypass",
+		description: "Bypass common root detection checks",
+		code: `// Root Detection Bypass
 Java.perform(function() {
   var RootBeer = Java.use("com.scottyab.rootbeer.RootBeer");
   RootBeer.isRooted.implementation = function() {
@@ -56,11 +51,11 @@ Java.perform(function() {
     return false;
   };
 });`,
-		},
-		{
-			name: "Method Trace",
-			description: "Trace all method calls in a class",
-			code: `// Method Trace
+	},
+	{
+		name: "Method Trace",
+		description: "Trace all method calls in a class",
+		code: `// Method Trace
 var className = "com.example.TargetClass";
 Java.perform(function() {
   var clazz = Java.use(className);
@@ -77,8 +72,20 @@ Java.perform(function() {
     } catch(e) {}
   });
 });`,
-		},
-	],
+	},
+];
+
+const DEFAULT_STATE: ScriptState = {
+	code: "",
+	loaded: false,
+	loading: false,
+	error: null,
+	scriptPath: null,
+	templates: DEFAULT_TEMPLATES,
+};
+
+const [state, setState] = createStore<ScriptState>({
+	...DEFAULT_STATE,
 });
 
 const [editorDirty, setEditorDirty] = createSignal(false);
@@ -150,6 +157,39 @@ async function reloadScript(sessionId: string): Promise<void> {
 	await loadScript(sessionId, state.code);
 }
 
+function resetScriptState(): void {
+	setState(restoreStore(DEFAULT_STATE));
+	setEditorDirty(false);
+}
+
+function snapshotScriptState(): {
+	state: ScriptState;
+	editorDirty: boolean;
+} {
+	return {
+		state: snapshotStore(state),
+		editorDirty: editorDirty(),
+	};
+}
+
+function restoreScriptState(snapshot?: {
+	state: ScriptState;
+	editorDirty: boolean;
+}): void {
+	if (!snapshot) {
+		resetScriptState();
+		return;
+	}
+
+	setState(
+		restoreStore({
+			...snapshot.state,
+			templates: DEFAULT_TEMPLATES,
+		}),
+	);
+	setEditorDirty(snapshot.editorDirty);
+}
+
 export {
 	state as scriptState,
 	editorDirty,
@@ -162,4 +202,7 @@ export {
 	loadScript,
 	unloadScript,
 	reloadScript,
+	resetScriptState,
+	snapshotScriptState,
+	restoreScriptState,
 };

@@ -1,4 +1,5 @@
 import { For, Show, createSignal, onMount, onCleanup } from "solid-js";
+import { ArrowRight, Wifi, Usb, Monitor, Smartphone } from "lucide-solid";
 import {
   deviceState,
   selectedDevice,
@@ -174,7 +175,7 @@ export default function DevicePanel() {
               class="rounded-lg bg-primary px-8 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
               onClick={handleContinue}
             >
-              Continue with {selectedDevice()!.name} &rarr;
+              <span class="flex items-center gap-2">Continue with {selectedDevice()!.name} <ArrowRight size={14} /></span>
             </button>
           </div>
         </Show>
@@ -231,8 +232,8 @@ function DeviceCard(props: { device: DeviceInfo }) {
       {/* Top row: icon + status dot */}
       <div class="flex items-start justify-between">
         {/* Device icon placeholder */}
-        <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-xl">
-          {deviceIcon(props.device)}
+        <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+          <DeviceIcon device={props.device} />
         </div>
         {/* Status dot */}
         <span
@@ -277,27 +278,26 @@ function DeviceCard(props: { device: DeviceInfo }) {
   );
 }
 
-function deviceIcon(device: DeviceInfo): string {
-  if (device.os) {
-    switch (device.os.platform) {
+function DeviceIcon(props: { device: DeviceInfo }) {
+  if (props.device.os) {
+    switch (props.device.os.platform) {
       case "android":
-        return "🤖";
+        return <Smartphone size={20} class="text-success" />;
       case "ios":
-        return "📱";
+        return <Smartphone size={20} class="text-primary" />;
       case "macos":
-        return "🍎";
       case "linux":
-        return "🐧";
+        return <Monitor size={20} class="text-foreground" />;
       case "windows":
-        return "🪟";
+        return <Monitor size={20} class="text-primary" />;
     }
   }
-  switch (device.type) {
+  switch (props.device.type) {
     case "usb":
-      return "📲";
+      return <Usb size={20} class="text-success" />;
     case "remote":
-      return "🌐";
+      return <Wifi size={20} class="text-warning" />;
     default:
-      return "💻";
+      return <Monitor size={20} class="text-muted-foreground" />;
   }
 }

@@ -1,0 +1,26 @@
+[package]
+name = "frida"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[features]
+auto-download = ["frida-sys/auto-download"]
+
+[dependencies]
+frida-sys = { path = "../frida-sys", version = "0.17.1" }
+thiserror = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.140"
+
+[dev-dependencies]
+lazy_static = "1"
+
+[badges]
+maintenance = { status = "experimental" }
+
+[package.metadata.docs.rs]
+features = []

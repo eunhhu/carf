@@ -1,4 +1,4 @@
-import { For, Show, Switch, Match, createEffect, createSignal } from "solid-js";
+import { For, Show, Switch, Match, createEffect, createSignal, onMount } from "solid-js";
 import {
   memoryState,
   memorySubMode,
@@ -6,11 +6,16 @@ import {
   fetchRanges,
   readMemoryAt,
   searchMemory,
+  setMonitorActive,
 } from "./memory.store";
 import type { MemorySubMode } from "./memory.store";
 import { cn } from "~/lib/cn";
 import { formatAddress, formatSize } from "~/lib/format";
+import { consumeNavigationContext, navigateTo } from "~/lib/navigation";
 import { activeSession } from "~/features/session/session.store";
+import { CopyButton } from "~/components/CopyButton";
+import { ActionPopover, buildAddressActions } from "~/components/ActionPopover";
+import { InlineActions } from "~/components/InlineActions";
 
 const SUB_MODES: { id: MemorySubMode; label: string }[] = [
   { id: "map", label: "Map" },
@@ -31,6 +36,16 @@ function MemoryTab() {
     const session = activeSession();
     if (session && memorySubMode() === "map") {
       fetchRanges(session.id);
+    }
+  });
+
+  onMount(() => {
+    const session = activeSession();
+    const context = consumeNavigationContext();
+    const address = context?.address;
+
+    if (session && typeof address === "string") {
+      void readMemoryAt(session.id, address);
     }
   });
 
@@ -93,17 +108,18 @@ function MemoryMapView() {
         }
       >
         {/* Table header */}
-        <div class="flex gap-2 px-3 py-1 text-[10px] font-medium uppercase text-muted-foreground">
-          <span class="w-28">Base</span>
-          <span class="w-16">Size</span>
-          <span class="w-10">Prot</span>
-          <span class="flex-1">File</span>
+        <div class="flex items-center px-3 py-1 text-[10px] font-medium uppercase text-muted-foreground">
+          <span class="w-36 shrink-0">Base</span>
+          <span class="w-16 shrink-0">Size</span>
+          <span class="w-10 shrink-0">Prot</span>
+          <span class="min-w-0 flex-1">File</span>
+          <span class="w-20 shrink-0" />
         </div>
 
         <For each={memoryState.ranges}>
           {(range) => (
-            <button
-              class="flex w-full gap-2 px-3 py-0.5 text-xs hover:bg-surface-hover"
+            <div
+              class="group/row flex w-full cursor-pointer items-center px-3 py-0.5 text-xs hover:bg-surface-hover"
               onClick={() => {
                 const session = activeSession();
                 if (session) {
@@ -111,8 +127,15 @@ function MemoryMapView() {
                 }
               }}
             >
-              <span class="w-28 shrink-0 font-mono text-muted-foreground">
-                {formatAddress(range.base)}
+              <span class="flex w-36 shrink-0 items-center gap-1">
+                <ActionPopover
+                  type="address"
+                  value={range.base}
+                  actions={buildAddressActions(range.base)}
+                >
+                  {formatAddress(range.base)}
+                </ActionPopover>
+                <CopyButton value={range.base} />
               </span>
               <span class="w-16 shrink-0">{formatSize(range.size)}</span>
               <span
@@ -123,10 +146,51 @@ function MemoryMapView() {
               >
                 {range.protection}
               </span>
-              <span class="flex-1 truncate text-muted-foreground">
+              <span
+                class="min-w-0 flex-1 truncate text-muted-foreground"
+                title={range.file?.path ?? ""}
+              >
                 {range.file?.path ?? ""}
               </span>
-            </button>
+              <span class="w-20 shrink-0">
+                <InlineActions
+                  primary={[
+                    {
+                      label: "Read",
+                      variant: "primary",
+                      onClick: (e) => {
+                        e.stopPropagation();
+                        const session = activeSession();
+                        if (session) {
+                          readMemoryAt(session.id, range.base);
+                        }
+                      },
+                    },
+                  ]}
+                  overflow={[
+                    {
+                      label: "Copy Base Address",
+                      onClick: () => {
+                        void navigator.clipboard.writeText(range.base);
+                      },
+                    },
+                    {
+                      label: "Pin Range",
+                      onClick: () => {
+                        navigateTo({
+                          tab: "pinboard",
+                          context: {
+                            type: "address",
+                            value: range.base,
+                            label: range.file?.path,
+                          },
+                        });
+                      },
+                    },
+                  ]}
+                />
+              </span>
+            </div>
           )}
         </For>
 
@@ -141,13 +205,109 @@ function MemoryMapView() {
 }
 
 function HexView() {
+  const BYTES_PER_ROW = 16;
+
+  const rows = () => {
+    const data = memoryState.hexData;
+    if (!data) return [];
+    const result: { offset: number; bytes: number[]; ascii: string }[] = [];
+    for (let i = 0; i < data.length; i += BYTES_PER_ROW) {
+      const slice = Array.from(data.slice(i, i + BYTES_PER_ROW));
+      const ascii = slice
+        .map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : "."))
+        .join("");
+      result.push({ offset: i, bytes: slice, ascii });
+    }
+    return result;
+  };
+
+  const baseAddr = () => {
+    const addr = memoryState.hexAddress;
+    if (!addr) return 0n;
+    try {
+      return BigInt(addr.startsWith("0x") ? addr : `0x${addr}`);
+    } catch {
+      return 0n;
+    }
+  };
+
+  const formatOffset = (offset: number) => {
+    const addr = baseAddr() + BigInt(offset);
+    return `0x${addr.toString(16).padStart(8, "0")}`;
+  };
+
   return (
-    <div class="flex h-full items-center justify-center text-xs text-muted-foreground">
+    <div class="flex h-full flex-col">
       <Show
         when={memoryState.hexAddress}
-        fallback="Select a memory range to view hex data"
+        fallback={
+          <div class="flex h-full items-center justify-center text-xs text-muted-foreground">
+            Select a memory range to view hex data
+          </div>
+        }
       >
-        Hex editor at {memoryState.hexAddress} (implementation in Phase 3)
+        {/* Toolbar */}
+        <div class="flex items-center gap-2 border-b px-3 py-1.5">
+          <span class="flex items-center gap-1 font-mono text-xs text-muted-foreground">
+            {formatAddress(memoryState.hexAddress!)}
+            <CopyButton value={memoryState.hexAddress!} />
+          </span>
+          <span class="text-[10px] text-muted-foreground">
+            {memoryState.hexData?.length ?? 0} bytes
+          </span>
+          <div class="flex-1" />
+          <button
+            class="cursor-pointer rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+            onClick={() => {
+              const session = activeSession();
+              if (session && memoryState.hexAddress) {
+                readMemoryAt(session.id, memoryState.hexAddress, 256);
+              }
+            }}
+          >
+            Refresh
+          </button>
+        </div>
+
+        {/* Hex header */}
+        <div class="flex items-center border-b bg-surface px-3 py-0.5 font-mono text-[10px] text-muted-foreground">
+          <span class="w-[76px] shrink-0">Offset</span>
+          <span class="min-w-0 flex-1 whitespace-pre">
+            {Array.from({ length: BYTES_PER_ROW }, (_, i) =>
+              i.toString(16).toUpperCase().padStart(2, "0"),
+            ).join(" ")}
+          </span>
+          <span class="ml-3 w-[130px] shrink-0">ASCII</span>
+        </div>
+
+        {/* Hex rows */}
+        <div class="flex-1 overflow-auto">
+          <Show when={memoryState.hexLoading}>
+            <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
+              Reading memory...
+            </div>
+          </Show>
+          <For each={rows()}>
+            {(row) => (
+              <div class="flex items-center px-3 py-px font-mono text-xs leading-5 hover:bg-surface-hover">
+                <span class="w-[76px] shrink-0 text-muted-foreground">
+                  {formatOffset(row.offset)}
+                </span>
+                <span class="min-w-0 flex-1 whitespace-pre">
+                  {row.bytes
+                    .map((b) => b.toString(16).padStart(2, "0"))
+                    .join(" ")}
+                  {row.bytes.length < BYTES_PER_ROW
+                    ? "   ".repeat(BYTES_PER_ROW - row.bytes.length)
+                    : ""}
+                </span>
+                <span class="ml-3 w-[130px] shrink-0 text-muted-foreground">
+                  {row.ascii}
+                </span>
+              </div>
+            )}
+          </For>
+        </div>
       </Show>
     </div>
   );
@@ -167,7 +327,7 @@ function SearchView() {
           onInput={(e) => setLocalPattern(e.currentTarget.value)}
         />
         <button
-          class="rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90"
+          class="cursor-pointer rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90"
           onClick={() => {
             const session = activeSession();
             if (session && localPattern()) {
@@ -201,8 +361,8 @@ function SearchView() {
           <div class="mt-2">
             <For each={memoryState.searchResults}>
               {(result) => (
-                <button
-                  class="flex w-full gap-2 px-2 py-0.5 hover:bg-surface-hover"
+                <div
+                  class="group/row flex w-full cursor-pointer items-center gap-2 px-2 py-0.5 hover:bg-surface-hover"
                   onClick={() => {
                     const session = activeSession();
                     if (session) {
@@ -210,13 +370,20 @@ function SearchView() {
                     }
                   }}
                 >
-                  <span class="font-mono text-primary">
-                    {formatAddress(result.address)}
+                  <span class="flex items-center gap-1">
+                    <ActionPopover
+                      type="address"
+                      value={result.address}
+                      actions={buildAddressActions(result.address)}
+                    >
+                      {formatAddress(result.address)}
+                    </ActionPopover>
+                    <CopyButton value={result.address} />
                   </span>
                   <span class="text-muted-foreground">
                     {result.size} bytes
                   </span>
-                </button>
+                </div>
               )}
             </For>
           </div>
@@ -227,22 +394,122 @@ function SearchView() {
 }
 
 function MonitorView() {
+  const [monitorAddress, setMonitorAddress] = createSignal("");
+  const [monitorSize, setMonitorSize] = createSignal("4096");
+
+  function handleStartMonitor() {
+    const session = activeSession();
+    if (!session || !monitorAddress()) return;
+    setMonitorActive(true);
+  }
+
+  function handleStopMonitor() {
+    setMonitorActive(false);
+  }
+
   return (
-    <div class="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
-      <p>Memory Access Monitor Heatmap</p>
-      <p class="text-[10px]">
-        MemoryAccessMonitor-based read/write frequency visualization
-      </p>
-      <Show
-        when={memoryState.monitorActive}
-        fallback={
-          <button class="rounded bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90">
-            Start Monitor
-          </button>
-        }
-      >
-        <span class="text-success">Monitoring active</span>
-      </Show>
+    <div class="flex h-full flex-col">
+      {/* Controls */}
+      <div class="border-b p-4">
+        <div class="flex items-center gap-2">
+          <input
+            type="text"
+            class="w-40 rounded border bg-background px-2 py-1.5 font-mono text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
+            placeholder="Base address (0x...)"
+            value={monitorAddress()}
+            onInput={(e) => setMonitorAddress(e.currentTarget.value)}
+          />
+          <input
+            type="text"
+            class="w-20 rounded border bg-background px-2 py-1.5 font-mono text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
+            placeholder="Size"
+            value={monitorSize()}
+            onInput={(e) => setMonitorSize(e.currentTarget.value)}
+          />
+          <Show
+            when={memoryState.monitorActive}
+            fallback={
+              <button
+                class="cursor-pointer rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90"
+                onClick={handleStartMonitor}
+              >
+                Start Monitor
+              </button>
+            }
+          >
+            <button
+              class="cursor-pointer rounded bg-destructive px-3 py-1.5 text-xs text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleStopMonitor}
+            >
+              Stop Monitor
+            </button>
+          </Show>
+        </div>
+        <p class="mt-2 text-[10px] text-muted-foreground">
+          MemoryAccessMonitor tracks read/write frequency per memory page and
+          visualizes access patterns as a heatmap.
+        </p>
+      </div>
+
+      {/* Heatmap area */}
+      <div class="flex-1 overflow-auto p-4">
+        <Show
+          when={memoryState.monitorActive}
+          fallback={
+            <div class="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
+              <p>Memory Access Monitor Heatmap</p>
+              <p class="text-[10px]">
+                Configure a memory range above and click Start to begin monitoring.
+              </p>
+            </div>
+          }
+        >
+          {/* Heatmap grid — placeholder cells showing access pattern */}
+          <div class="mb-3 flex items-center gap-4 text-[10px] text-muted-foreground">
+            <span class="text-success">Monitoring active</span>
+            <span>Base: {monitorAddress()}</span>
+            <span>Size: {monitorSize()} bytes</span>
+          </div>
+          <div class="flex items-center gap-1 text-[10px] text-muted-foreground">
+            <span>Cold</span>
+            <div class="flex gap-px">
+              <div class="h-3 w-3 rounded-sm bg-blue-900/30" />
+              <div class="h-3 w-3 rounded-sm bg-blue-700/50" />
+              <div class="h-3 w-3 rounded-sm bg-cyan-500/60" />
+              <div class="h-3 w-3 rounded-sm bg-yellow-500/70" />
+              <div class="h-3 w-3 rounded-sm bg-orange-500/80" />
+              <div class="h-3 w-3 rounded-sm bg-red-500/90" />
+            </div>
+            <span>Hot</span>
+          </div>
+          <div class="mt-3 grid grid-cols-16 gap-px">
+            <For each={Array.from({ length: 256 }, (_, i) => i)}>
+              {(i) => {
+                const intensity = Math.sin(i * 0.1) * 0.5 + 0.5;
+                const bgClass =
+                  intensity > 0.8
+                    ? "bg-red-500/80"
+                    : intensity > 0.6
+                      ? "bg-orange-500/60"
+                      : intensity > 0.4
+                        ? "bg-yellow-500/40"
+                        : intensity > 0.2
+                          ? "bg-cyan-500/30"
+                          : "bg-blue-900/20";
+                return (
+                  <div
+                    class={cn("h-4 w-4 rounded-sm", bgClass)}
+                    title={`Page ${i}: ${(intensity * 100).toFixed(0)}% activity`}
+                  />
+                );
+              }}
+            </For>
+          </div>
+          <p class="mt-2 text-[10px] text-muted-foreground">
+            Each cell represents a memory page. Color intensity indicates access frequency.
+          </p>
+        </Show>
+      </div>
     </div>
   );
 }

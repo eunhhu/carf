@@ -1,6 +1,10 @@
 import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
-import { normalizeNetworkRequestPayload } from "~/lib/event-normalizers";
+import {
+	extractEventSessionId,
+	normalizeNetworkRequestPayload,
+} from "~/lib/event-normalizers";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke, listen } from "~/lib/tauri";
 import type { NetworkRequest } from "~/lib/types";
 
@@ -10,10 +14,14 @@ interface NetworkState {
 	selectedRequestId: string | null;
 }
 
-const [state, setState] = createStore<NetworkState>({
+const DEFAULT_STATE: NetworkState = {
 	requests: [],
 	capturing: false,
 	selectedRequestId: null,
+};
+
+const [state, setState] = createStore<NetworkState>({
+	...DEFAULT_STATE,
 });
 
 const [domainFilter, setDomainFilter] = createSignal("");
@@ -21,7 +29,59 @@ const [methodFilter, setMethodFilter] = createSignal<string | "all">("all");
 const [statusFilter, setStatusFilter] = createSignal<number | "all">("all");
 
 function addRequest(request: NetworkRequest): void {
-	setState("requests", (prev) => [...prev, request]);
+	setState("requests", (prev) => {
+		const existingIndex = findMergeableRequestIndex(prev, request);
+		if (existingIndex < 0) {
+			return [...prev, request];
+		}
+
+		const next = [...prev];
+		next[existingIndex] = {
+			...next[existingIndex],
+			...request,
+		};
+		return next;
+	});
+}
+
+function findMergeableRequestIndex(
+	requests: NetworkRequest[],
+	request: NetworkRequest,
+): number {
+	const exactIndex = requests.findIndex((entry) => entry.id === request.id);
+	if (exactIndex >= 0) {
+		return exactIndex;
+	}
+
+	if (request.url.startsWith("tls://")) {
+		return -1;
+	}
+
+	for (let index = requests.length - 1; index >= 0; index -= 1) {
+		const entry = requests[index];
+		if (entry.url !== request.url || entry.method !== request.method) {
+			continue;
+		}
+
+		if (Math.abs(entry.timestamp - request.timestamp) > 30_000) {
+			continue;
+		}
+
+		if (
+			entry.statusCode === request.statusCode &&
+			entry.duration === request.duration &&
+			Object.keys(entry.requestHeaders).length > 0 &&
+			Object.keys(request.requestHeaders).length > 0 &&
+			Object.keys(entry.responseHeaders).length > 0 &&
+			Object.keys(request.responseHeaders).length > 0
+		) {
+			continue;
+		}
+
+		return index;
+	}
+
+	return -1;
 }
 
 function updateRequest(id: string, updates: Partial<NetworkRequest>): void {
@@ -42,6 +102,10 @@ function setCapturing(capturing: boolean): void {
 
 function clearRequests(): void {
 	setState({ requests: [], selectedRequestId: null });
+}
+
+function resetNetworkState(): void {
+	setState(restoreStore(DEFAULT_STATE));
 }
 
 async function startCapture(sessionId: string): Promise<void> {
@@ -74,13 +138,14 @@ function setupNetworkListener(sessionId: string): () => void {
 	const cleanup = listen<NetworkRequest>(
 		"carf://network/request",
 		(payload) => {
+			if (extractEventSessionId(payload) !== sessionId) {
+				return;
+			}
 			const request = normalizeNetworkRequestPayload(payload);
 			if (!request) return;
-			setState("requests", (prev) => [...prev, request]);
+			addRequest(request);
 		},
 	);
-	// sessionId reserved for future filtering
-	void sessionId;
 	return cleanup;
 }
 
@@ -164,6 +229,40 @@ const filteredRequests = () => {
 const selectedRequest = () =>
 	state.requests.find((r) => r.id === state.selectedRequestId) ?? null;
 
+function snapshotNetworkState(): {
+	state: NetworkState;
+	domainFilter: string;
+	methodFilter: string | "all";
+	statusFilter: number | "all";
+} {
+	return {
+		state: snapshotStore(state),
+		domainFilter: domainFilter(),
+		methodFilter: methodFilter(),
+		statusFilter: statusFilter(),
+	};
+}
+
+function restoreNetworkState(snapshot?: {
+	state: NetworkState;
+	domainFilter: string;
+	methodFilter: string | "all";
+	statusFilter: number | "all";
+}): void {
+	if (!snapshot) {
+		resetNetworkState();
+		setDomainFilter("");
+		setMethodFilter("all");
+		setStatusFilter("all");
+		return;
+	}
+
+	setState(restoreStore(snapshot.state));
+	setDomainFilter(snapshot.domainFilter);
+	setMethodFilter(snapshot.methodFilter);
+	setStatusFilter(snapshot.statusFilter);
+}
+
 export {
 	state as networkState,
 	domainFilter,
@@ -177,10 +276,13 @@ export {
 	selectRequest,
 	setCapturing,
 	clearRequests,
+	resetNetworkState,
 	filteredRequests,
 	selectedRequest,
 	startCapture,
 	stopCapture,
 	setupNetworkListener,
 	exportHar,
+	snapshotNetworkState,
+	restoreNetworkState,
 };

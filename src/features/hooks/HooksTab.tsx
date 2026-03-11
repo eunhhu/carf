@@ -1,8 +1,13 @@
 import { For, Show, createSignal, onMount } from "solid-js";
+import { ActionPopover, buildAddressActions } from "~/components/ActionPopover";
+import { CopyButton } from "~/components/CopyButton";
+import { InlineActions } from "~/components/InlineActions";
+import type { OverflowAction } from "~/components/InlineActions";
 import { activeSession } from "~/features/session/session.store";
 import { cn } from "~/lib/cn";
 import { pickTextFile } from "~/lib/file-picker";
 import { formatAddress } from "~/lib/format";
+import { navigateTo } from "~/lib/navigation";
 import type { HookConfig, HookInfo } from "~/lib/types";
 import {
 	activeHooks,
@@ -77,6 +82,116 @@ function HooksTab() {
 		);
 	}
 
+	function handleExportAsScript() {
+		const hooks = hooksState.hooks;
+		if (hooks.length === 0) return;
+
+		const lines: string[] = [
+			"// CARF Hook Configuration Script",
+			`// Generated: ${new Date().toISOString()}`,
+			`// Hooks: ${hooks.length}`,
+			"",
+		];
+
+		const nativeHooks = hooks.filter((h) => h.type === "native");
+		const javaHooks = hooks.filter((h) => h.type === "java");
+		const objcHooks = hooks.filter((h) => h.type === "objc");
+
+		if (nativeHooks.length > 0) {
+			lines.push("// --- Native Hooks ---");
+			for (const hook of nativeHooks) {
+				lines.push(`Interceptor.attach(Module.findExportByName(${hook.target.includes("!") ? `"${hook.target.split("!")[0]}", "${hook.target.split("!")[1]}"` : `null, "${hook.target}"`}), {`);
+				lines.push("  onEnter(args) {");
+				lines.push(`    send({ type: "hook:enter", data: { target: "${hook.target}", args: [args[0], args[1], args[2], args[3]].map(String) }});`);
+				lines.push("  },");
+				lines.push("  onLeave(retval) {");
+				lines.push(`    send({ type: "hook:leave", data: { target: "${hook.target}", retval: retval.toString() }});`);
+				lines.push("  }");
+				lines.push("});");
+				lines.push("");
+			}
+		}
+
+		if (javaHooks.length > 0) {
+			lines.push("// --- Java Hooks ---");
+			lines.push("Java.perform(function() {");
+			for (const hook of javaHooks) {
+				const dot = hook.target.lastIndexOf(".");
+				if (dot <= 0) continue;
+				const className = hook.target.slice(0, dot);
+				const methodName = hook.target.slice(dot + 1);
+				lines.push(`  var cls = Java.use("${className}");`);
+				lines.push(`  cls.${methodName}.implementation = function() {`);
+				lines.push(`    send({ type: "hook:enter", data: { target: "${hook.target}", args: Array.from(arguments).map(String) }});`);
+				lines.push(`    var ret = this.${methodName}.apply(this, arguments);`);
+				lines.push(`    send({ type: "hook:leave", data: { target: "${hook.target}", retval: String(ret) }});`);
+				lines.push("    return ret;");
+				lines.push("  };");
+				lines.push("");
+			}
+			lines.push("});");
+			lines.push("");
+		}
+
+		if (objcHooks.length > 0) {
+			lines.push("// --- ObjC Hooks ---");
+			for (const hook of objcHooks) {
+				const space = hook.target.indexOf(" ");
+				if (space <= 0) continue;
+				const className = hook.target.slice(0, space);
+				const selector = hook.target.slice(space + 1);
+				lines.push(`var ${className.replace(/[^a-zA-Z]/g, "_")}_impl = ObjC.classes.${className}["- ${selector}"].implementation;`);
+				lines.push(`Interceptor.attach(${className.replace(/[^a-zA-Z]/g, "_")}_impl, {`);
+				lines.push("  onEnter(args) {");
+				lines.push(`    send({ type: "hook:enter", data: { target: "${hook.target}" }});`);
+				lines.push("  },");
+				lines.push("  onLeave(retval) {");
+				lines.push(`    send({ type: "hook:leave", data: { target: "${hook.target}", retval: retval.toString() }});`);
+				lines.push("  }");
+				lines.push("});");
+				lines.push("");
+			}
+		}
+
+		const script = lines.join("\n");
+		const blob = new Blob([script], { type: "text/javascript" });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = "carf-hooks.js";
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	function buildOverflowActions(hook: HookInfo): OverflowAction[] {
+		const actions: OverflowAction[] = [
+			{
+				label: "Copy Target",
+				onClick: () => navigator.clipboard.writeText(hook.target),
+			},
+		];
+		if (hook.address) {
+			actions.push({
+				label: "Copy Address",
+				onClick: () => navigator.clipboard.writeText(hook.address!),
+			});
+		}
+		actions.push({
+			label: "View Hook Events",
+			onClick: () =>
+				navigateTo({
+					tab: "console",
+					context: { filter: hook.target },
+				}),
+		});
+		actions.push({
+			label: "Remove Hook",
+			separator: true,
+			onClick: () => handleDelete(hook),
+		});
+		return actions;
+	}
+
 	return (
 		<div class="flex h-full flex-col">
 			{/* Header */}
@@ -102,21 +217,22 @@ function HooksTab() {
 					</select>
 					<button
 						type="button"
-						class="rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+						class="cursor-pointer rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground"
 						onClick={handleExport}
 					>
 						Export
 					</button>
 					<button
 						type="button"
-						class="rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+						class="cursor-pointer rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground"
 						onClick={handleImport}
 					>
 						Import
 					</button>
 					<button
 						type="button"
-						class="rounded px-2 py-0.5 text-xs text-primary hover:bg-primary/10"
+						class="cursor-pointer rounded px-2 py-0.5 text-xs text-primary hover:bg-primary/10"
+						onClick={handleExportAsScript}
 					>
 						Export as Script
 					</button>
@@ -126,21 +242,20 @@ function HooksTab() {
 			{/* Hook table */}
 			<div class="flex-1 overflow-auto">
 				{/* Table header */}
-				<div class="sticky top-0 flex gap-2 border-b bg-surface px-4 py-1.5 text-[10px] font-medium uppercase text-muted-foreground">
-					<span class="w-6" />
-					<span class="w-20">ID</span>
-					<span class="w-14">Type</span>
-					<span class="flex-1">Target</span>
-					<span class="w-28">Address</span>
-					<span class="w-14 text-right">Hits</span>
-					<span class="w-16 text-center">Status</span>
-					<span class="w-16" />
+				<div class="sticky top-0 flex items-center border-b bg-surface px-4 py-1.5 text-[10px] font-medium uppercase text-muted-foreground">
+					<span class="w-6 shrink-0" />
+					<span class="w-16 shrink-0">ID</span>
+					<span class="w-14 shrink-0">Type</span>
+					<span class="min-w-0 flex-1">Target</span>
+					<span class="w-36 shrink-0">Address</span>
+					<span class="w-12 shrink-0 text-right">Hits</span>
+					<span class="w-20 shrink-0" />
 				</div>
 
 				<For each={filtered()}>
 					{(hook) => (
-						<div class="flex items-center gap-2 border-b border-border/30 px-4 py-1.5 text-xs hover:bg-surface-hover">
-							<span class="w-6">
+						<div class="group/row flex items-center border-b border-border/30 px-4 py-1.5 text-xs hover:bg-surface-hover">
+							<span class="w-6 shrink-0">
 								<span
 									class={cn(
 										"inline-block h-2 w-2 rounded-full",
@@ -148,10 +263,10 @@ function HooksTab() {
 									)}
 								/>
 							</span>
-							<span class="w-20 font-mono text-muted-foreground">
+							<span class="w-16 shrink-0 truncate font-mono text-muted-foreground" title={hook.id}>
 								{hook.id}
 							</span>
-							<span class="w-14">
+							<span class="w-14 shrink-0">
 								<span
 									class={cn(
 										"rounded px-1.5 py-0.5 text-[10px] font-medium",
@@ -163,33 +278,40 @@ function HooksTab() {
 									{hook.type}
 								</span>
 							</span>
-							<span class="flex-1 truncate font-mono">{hook.target}</span>
-							<span class="w-28 font-mono text-muted-foreground">
-								{hook.address ? formatAddress(hook.address) : "-"}
+							<span class="min-w-0 flex-1 flex items-center gap-1 font-mono">
+								<span class="min-w-0 truncate" title={hook.target}>{hook.target}</span>
+								<CopyButton value={hook.target} class="shrink-0" />
 							</span>
-							<span class="w-14 text-right font-mono">{hook.hits}</span>
-							<span class="w-16 text-center">
-								<button
-									type="button"
-									class={cn(
-										"rounded px-2 py-0.5 text-[10px]",
-										hook.active
-											? "bg-success/10 text-success"
-											: "bg-muted text-muted-foreground",
-									)}
-									onClick={() => handleToggle(hook)}
+							<span class="w-36 shrink-0 flex items-center gap-1 font-mono text-muted-foreground">
+								<Show
+									when={hook.address}
+									fallback={<span>-</span>}
 								>
-									{hook.active ? "ON" : "OFF"}
-								</button>
+									<ActionPopover
+										type="address"
+										value={hook.address!}
+										actions={buildAddressActions(hook.address!)}
+									>
+										{formatAddress(hook.address!)}
+									</ActionPopover>
+									<CopyButton value={hook.address!} class="shrink-0" />
+								</Show>
 							</span>
-							<span class="w-16 text-right">
-								<button
-									type="button"
-									class="rounded px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/10"
-									onClick={() => handleDelete(hook)}
-								>
-									Remove
-								</button>
+							<span class="w-12 shrink-0 text-right font-mono">{hook.hits}</span>
+							<span class="w-20 shrink-0 flex justify-end">
+								<InlineActions
+									primary={[
+										{
+											label: hook.active ? "ON" : "OFF",
+											variant: hook.active ? "primary" : "default",
+											onClick: (e: MouseEvent) => {
+												e.stopPropagation();
+												handleToggle(hook);
+											},
+										},
+									]}
+									overflow={buildOverflowActions(hook)}
+								/>
 							</span>
 						</div>
 					)}

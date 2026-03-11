@@ -1,5 +1,6 @@
 import { registerHandler } from "../rpc/router";
 import { emitHookEvent } from "../rpc/protocol";
+import { findExportByName } from "../runtime/frida-compat";
 
 interface HookEntry {
   hookId: string;
@@ -38,13 +39,13 @@ function resolveTarget(target: string): NativePointer {
   if (bangIndex !== -1) {
     const moduleName = target.slice(0, bangIndex);
     const symbolName = target.slice(bangIndex + 1);
-    const addr = Module.findExportByName(moduleName, symbolName);
+    const addr = findExportByName(moduleName, symbolName);
     if (!addr) throw new Error(`Export not found: ${target}`);
     return addr;
   }
 
   // Bare symbol name — search all modules
-  const addr = Module.findExportByName(null, target);
+  const addr = findExportByName(null, target);
   if (!addr) throw new Error(`Symbol not found: ${target}`);
   return addr;
 }

@@ -1,5 +1,6 @@
 import { createStore } from "solid-js/store";
 import type { FileEntry } from "~/lib/types";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
 
 interface SqliteQueryResult {
@@ -20,7 +21,7 @@ interface FilesystemState {
   sqliteLoading: boolean;
 }
 
-const [state, setState] = createStore<FilesystemState>({
+const DEFAULT_STATE: FilesystemState = {
   currentPath: "/",
   entries: [],
   entriesLoading: false,
@@ -31,6 +32,10 @@ const [state, setState] = createStore<FilesystemState>({
   sqliteResult: null,
   sqliteQuery: "",
   sqliteLoading: false,
+};
+
+const [state, setState] = createStore<FilesystemState>({
+  ...DEFAULT_STATE,
 });
 
 function setPath(path: string): void {
@@ -69,24 +74,38 @@ function setSqliteLoading(loading: boolean): void {
   setState("sqliteLoading", loading);
 }
 
+function resetFilesystemState(): void {
+  setState(restoreStore(DEFAULT_STATE));
+}
+
+function snapshotFilesystemState(): FilesystemState {
+  return snapshotStore(state);
+}
+
+function restoreFilesystemState(snapshot?: FilesystemState): void {
+  setState(restoreStore(snapshot ?? DEFAULT_STATE));
+}
+
 function navigateUp(): void {
   const parts = state.currentPath.split("/").filter(Boolean);
   parts.pop();
   setPath(parts.length === 0 ? "/" : `/${parts.join("/")}`);
 }
 
-async function fetchDirectory(sessionId: string, path: string): Promise<void> {
-  setState({ currentPath: path, entries: [], entriesLoading: true });
+async function fetchDirectory(sessionId: string, path: string): Promise<boolean> {
+  setState({ entries: [], entriesLoading: true });
   try {
     const entries = await invoke<FileEntry[]>("rpc_call", {
       sessionId,
       method: "listDirectory",
       params: { path },
     });
-    setState({ entries: entries ?? [], entriesLoading: false });
+    setState({ currentPath: path, entries: entries ?? [], entriesLoading: false });
+    return true;
   } catch (err) {
     console.error("[filesystem] fetchDirectory failed:", err);
     setState({ entries: [], entriesLoading: false });
+    return false;
   }
 }
 
@@ -142,6 +161,27 @@ async function fetchSqliteTables(sessionId: string, path: string): Promise<void>
   }
 }
 
+async function downloadFile(sessionId: string, path: string): Promise<void> {
+  try {
+    const content = await invoke<string>("rpc_call", {
+      sessionId,
+      method: "readFile",
+      params: { path, encoding: "utf8" },
+    });
+    if (content == null) return;
+    const filename = path.split("/").pop() ?? "download";
+    const blob = new Blob([content], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("[filesystem] downloadFile failed:", err);
+  }
+}
+
 export {
   state as filesystemState,
   setPath as setFilesystemPath,
@@ -153,9 +193,13 @@ export {
   setSqliteResult,
   setSqliteQuery,
   setSqliteLoading,
+  resetFilesystemState,
   navigateUp,
   fetchDirectory,
   readFileContent,
   querySqlite,
   fetchSqliteTables,
+  downloadFile,
+  snapshotFilesystemState,
+  restoreFilesystemState,
 };

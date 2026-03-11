@@ -5,6 +5,8 @@ import { unwrapRpcResult } from "~/lib/rpc";
 
 const IS_TAURI =
 	typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const ALLOW_MOCK_FALLBACK =
+	import.meta.env.VITE_CARF_ALLOW_MOCK === "true";
 const EXPLICIT_BRIDGE_URL = import.meta.env.VITE_CARF_BRIDGE_URL?.trim();
 const DEFAULT_BRIDGE_URL =
 	typeof window !== "undefined" &&
@@ -66,10 +68,16 @@ export async function invoke<T>(
 			try {
 				return await bridgeInvoke<T>(cmd, args);
 			} catch (error) {
-				if (!shouldFallbackToMock(error)) {
+				if (!ALLOW_MOCK_FALLBACK || !shouldFallbackToMock(error)) {
 					throw error;
 				}
 			}
+		}
+
+		if (!ALLOW_MOCK_FALLBACK) {
+			throw new Error(
+				"CARF bridge is unavailable. Start the Axum bridge or run inside Tauri.",
+			);
 		}
 
 		return mockInvoke<T>(cmd, args);
@@ -106,7 +114,7 @@ export function listen<T>(
 					return;
 				}
 				eventSource.close();
-				if (!EXPLICIT_BRIDGE_URL) {
+				if (!EXPLICIT_BRIDGE_URL && ALLOW_MOCK_FALLBACK) {
 					fallbackCleanup = mockListen(event, handler);
 				}
 			};
@@ -117,6 +125,12 @@ export function listen<T>(
 				eventSource.close();
 				fallbackCleanup?.();
 			};
+		}
+
+		if (!ALLOW_MOCK_FALLBACK) {
+			throw new Error(
+				"CARF bridge is unavailable. Start the Axum bridge or run inside Tauri.",
+			);
 		}
 
 		return mockListen(event, handler);

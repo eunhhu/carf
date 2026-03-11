@@ -2,7 +2,11 @@
   "name": "@carf/agent",
   "private": true,
   "scripts": {
-    "build": "frida-compile src/index.ts -o dist/_agent.js"
+    "build": "frida-compile src/index.ts -o dist/_agent.js -T none"
+  },
+
+  "dependencies": {
+    "frida-swift-bridge": "^2.0.0"
   },
   "devDependencies": {
     "@types/frida-gum": "^18.0.0",

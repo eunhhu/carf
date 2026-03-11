@@ -68,7 +68,7 @@ bun install
 # Full desktop app (Frontend + Rust backend)
 bun run tauri dev
 
-# Web frontend only (falls back to mock runtime if no bridge is running)
+# Web frontend only (requires Axum bridge or Tauri backend)
 bun run dev
 
 # Axum bridge for running the app in a regular browser
@@ -88,6 +88,7 @@ bun run dev
 ```
 
 By default the browser frontend connects to `http://127.0.0.1:7766`. To use a different bridge URL, set `VITE_CARF_BRIDGE_URL`.
+Mock fallback is now opt-in only. Set `VITE_CARF_ALLOW_MOCK=true` if you explicitly want the browser to run without a live backend.
 
 ### Build for Production
 
@@ -123,7 +124,7 @@ CARF follows a **three-layer architecture**: Frontend, Backend, and Agent.
 │                 │ Tauri IPC              │
 │  ┌──────────────▼─────────────────────┐  │
 │  │     Backend (Rust / Tauri 2)       │  │
-│  │     frida-rust + ADB service      │  │
+│  │     Frida host bridge + ADB       │  │
 │  └──────────────┬─────────────────────┘  │
 │                 │ Frida Protocol          │
 └─────────────────┼────────────────────────┘
@@ -139,7 +140,7 @@ CARF follows a **three-layer architecture**: Frontend, Backend, and Agent.
 ```
 
 - **Frontend** -- SolidJS SPA with signal-based state management. Communicates with the backend over Tauri IPC.
-- **Backend** -- Rust service layer managing Frida DeviceManager, session lifecycle, ADB integration, and script loading.
+- **Backend** -- Rust service layer managing Frida devices, session lifecycle, ADB integration, and script loading through `frida-rust`.
 - **Agent** -- TypeScript instrumentation script injected into the target process. Exposes RPC methods for the host and delegates performance-critical work to RustModule.
 
 For the full architecture document, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -164,7 +165,7 @@ bun install
 # Start development (full Tauri app)
 bun run tauri dev
 
-# Start development (browser only, mock/runtime fallback enabled)
+# Start development (browser only, requires live bridge by default)
 bun run dev
 
 # Start Axum bridge for browser mode

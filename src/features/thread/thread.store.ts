@@ -1,6 +1,7 @@
 import { createStore } from "solid-js/store";
 import { createSignal } from "solid-js";
 import type { ThreadInfo, BacktraceFrame } from "~/lib/types";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
 
 type RefreshInterval = 2000 | 5000 | 0;
@@ -13,12 +14,16 @@ interface ThreadState {
   backtraceLoading: boolean;
 }
 
-const [state, setState] = createStore<ThreadState>({
+const DEFAULT_STATE: ThreadState = {
   threads: [],
   loading: false,
   selectedThreadId: null,
   backtrace: [],
   backtraceLoading: false,
+};
+
+const [state, setState] = createStore<ThreadState>({
+  ...DEFAULT_STATE,
 });
 
 const [refreshInterval, setRefreshInterval] = createSignal<RefreshInterval>(0);
@@ -41,6 +46,34 @@ function setLoading(loading: boolean): void {
 
 function setBacktraceLoading(loading: boolean): void {
   setState("backtraceLoading", loading);
+}
+
+function resetThreadState(): void {
+  setState(restoreStore(DEFAULT_STATE));
+  setRefreshInterval(0);
+}
+
+function snapshotThreadState(): {
+  state: ThreadState;
+  refreshInterval: RefreshInterval;
+} {
+  return {
+    state: snapshotStore(state),
+    refreshInterval: refreshInterval(),
+  };
+}
+
+function restoreThreadState(snapshot?: {
+  state: ThreadState;
+  refreshInterval: RefreshInterval;
+}): void {
+  if (!snapshot) {
+    resetThreadState();
+    return;
+  }
+
+  setState(restoreStore(snapshot.state));
+  setRefreshInterval(snapshot.refreshInterval);
 }
 
 const selectedThread = () =>
@@ -89,6 +122,9 @@ export {
   setBacktrace,
   setLoading as setThreadLoading,
   setBacktraceLoading,
+  resetThreadState,
+  snapshotThreadState,
+  restoreThreadState,
   selectedThread,
   threadsByState,
   refreshInterval,

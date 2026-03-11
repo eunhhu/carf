@@ -1,4 +1,4 @@
-import { For, Show, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import {
   consoleState,
   filteredMessages,
@@ -9,9 +9,11 @@ import {
   clearMessages,
   clearHookEvents,
   addMessage,
-  addReplEntry,
   consolePanelHeight,
+  evaluateCode,
 } from "./console.store";
+import { activeSession } from "~/features/session/session.store";
+import { CopyButton } from "~/components/CopyButton";
 import { cn } from "~/lib/cn";
 import { formatTimestamp } from "~/lib/format";
 import type { ConsolePanelTab, ConsoleLevel } from "~/lib/types";
@@ -25,16 +27,27 @@ const PANEL_TABS: { id: ConsolePanelTab; label: string }[] = [
 
 export function ConsolePanel() {
   const [replInput, setReplInput] = createSignal("");
+  let replInputRef: HTMLInputElement | undefined;
+
+  createEffect(() => {
+    const focusRepl = () => replInputRef?.focus();
+    document.addEventListener("carf:focus-repl", focusRepl);
+    onCleanup(() => document.removeEventListener("carf:focus-repl", focusRepl));
+  });
 
   function handleReplSubmit(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       const code = replInput().trim();
       if (!code) return;
-      addReplEntry(code);
-      addMessage("info", "user", `> ${code}`);
+      const session = activeSession();
+      if (!session) {
+        addMessage("warn", "system", "No active session for REPL evaluation");
+        return;
+      }
+
+      void evaluateCode(session.id, code);
       setReplInput("");
-      // RPC evaluate would be called here in full implementation
     }
   }
 
@@ -50,7 +63,7 @@ export function ConsolePanel() {
             {(tab) => (
               <button
                 class={cn(
-                  "rounded px-2 py-0.5 text-xs transition-colors",
+                  "cursor-pointer rounded px-2 py-0.5 text-xs transition-colors",
                   consolePanelTab() === tab.id
                     ? "bg-muted text-foreground"
                     : "text-muted-foreground hover:text-foreground",
@@ -89,7 +102,7 @@ export function ConsolePanel() {
 
           {/* Clear */}
           <button
-            class="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+            class="cursor-pointer rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => {
               if (consolePanelTab() === "hookEvents") {
                 clearHookEvents();
@@ -111,7 +124,7 @@ export function ConsolePanel() {
               {(msg) => (
                 <div
                   class={cn(
-                    "flex gap-2 rounded px-2 py-0.5 hover:bg-surface-hover",
+                    "group/row flex items-center gap-2 rounded px-2 py-0.5 hover:bg-surface-hover",
                     msg.level === "error" && "text-destructive",
                     msg.level === "warn" && "text-warning",
                     msg.level === "debug" && "text-muted-foreground",
@@ -120,10 +133,11 @@ export function ConsolePanel() {
                   <span class="shrink-0 text-muted-foreground">
                     {formatTimestamp(msg.timestamp)}
                   </span>
-                  <span class="shrink-0 w-10 text-muted-foreground">
+                  <span class="w-10 shrink-0 text-muted-foreground">
                     [{msg.source}]
                   </span>
-                  <span class="break-all">{msg.content}</span>
+                  <span class="min-w-0 flex-1 break-all">{msg.content}</span>
+                  <CopyButton value={msg.content} class="shrink-0 opacity-0 group-hover/row:opacity-100" />
                 </div>
               )}
             </For>
@@ -134,17 +148,18 @@ export function ConsolePanel() {
           <div class="p-1">
             <For each={consoleState.hookEvents}>
               {(event) => (
-                <div class="flex gap-2 rounded px-2 py-0.5 hover:bg-surface-hover">
+                <div class="group/row flex items-center gap-2 rounded px-2 py-0.5 hover:bg-surface-hover">
                   <span class="shrink-0 text-muted-foreground">
                     {formatTimestamp(event.timestamp)}
                   </span>
                   <span class={cn(
-                    "shrink-0 w-12",
+                    "w-12 shrink-0",
                     event.type === "enter" ? "text-success" : "text-primary",
                   )}>
                     {event.type}
                   </span>
-                  <span>{event.target}</span>
+                  <span class="min-w-0 flex-1 truncate">{event.target}</span>
+                  <CopyButton value={event.target} class="shrink-0 opacity-0 group-hover/row:opacity-100" />
                 </div>
               )}
             </For>
@@ -155,11 +170,12 @@ export function ConsolePanel() {
           <div class="p-1">
             <For each={consoleState.systemMessages}>
               {(msg) => (
-                <div class="flex gap-2 rounded px-2 py-0.5 hover:bg-surface-hover">
+                <div class="group/row flex items-center gap-2 rounded px-2 py-0.5 hover:bg-surface-hover">
                   <span class="shrink-0 text-muted-foreground">
                     {formatTimestamp(msg.timestamp)}
                   </span>
-                  <span>{msg.content}</span>
+                  <span class="min-w-0 flex-1 truncate">{msg.content}</span>
+                  <CopyButton value={msg.content} class="shrink-0 opacity-0 group-hover/row:opacity-100" />
                 </div>
               )}
             </For>
@@ -167,9 +183,7 @@ export function ConsolePanel() {
         </Show>
 
         <Show when={consolePanelTab() === "timeline"}>
-          <div class="flex h-full items-center justify-center text-muted-foreground">
-            Timeline visualization (Phase 3)
-          </div>
+          <TimelineView />
         </Show>
       </div>
 
@@ -178,6 +192,7 @@ export function ConsolePanel() {
         <div class="flex items-center border-t px-2">
           <span class="text-xs text-primary">&gt;</span>
           <input
+            ref={replInputRef}
             type="text"
             class="flex-1 bg-transparent px-2 py-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground"
             placeholder="Evaluate JavaScript..."
@@ -187,6 +202,149 @@ export function ConsolePanel() {
           />
         </div>
       </Show>
+    </div>
+  );
+}
+
+interface TimelineEntry {
+  id: string;
+  timestamp: number;
+  kind: "message" | "hook" | "system";
+  label: string;
+  detail: string;
+  color: string;
+}
+
+function TimelineView() {
+  const [kindFilter, setKindFilter] = createSignal<TimelineEntry["kind"] | "all">("all");
+
+  const entries = createMemo<TimelineEntry[]>(() => {
+    const result: TimelineEntry[] = [];
+
+    for (const msg of consoleState.messages) {
+      result.push({
+        id: msg.id,
+        timestamp: msg.timestamp,
+        kind: "message",
+        label: msg.level.toUpperCase(),
+        detail: msg.content,
+        color:
+          msg.level === "error"
+            ? "bg-destructive"
+            : msg.level === "warn"
+              ? "bg-warning"
+              : "bg-primary",
+      });
+    }
+
+    for (const evt of consoleState.hookEvents) {
+      result.push({
+        id: `hook-${evt.hookId}-${evt.timestamp}`,
+        timestamp: evt.timestamp,
+        kind: "hook",
+        label: evt.type === "enter" ? "ENTER" : "LEAVE",
+        detail: evt.target,
+        color: evt.type === "enter" ? "bg-success" : "bg-cyan-500",
+      });
+    }
+
+    for (const msg of consoleState.systemMessages) {
+      result.push({
+        id: `sys-${msg.id}`,
+        timestamp: msg.timestamp,
+        kind: "system",
+        label: "SYSTEM",
+        detail: msg.content,
+        color: "bg-muted-foreground",
+      });
+    }
+
+    result.sort((a, b) => a.timestamp - b.timestamp);
+    return result;
+  });
+
+  const filteredEntries = createMemo(() => {
+    const k = kindFilter();
+    if (k === "all") return entries();
+    return entries().filter((e) => e.kind === k);
+  });
+
+  // Compute time range for the visual bar
+  const timeRange = createMemo(() => {
+    const e = entries();
+    if (e.length === 0) return { min: 0, max: 1 };
+    return { min: e[0].timestamp, max: e[e.length - 1].timestamp };
+  });
+
+  function barPosition(ts: number): string {
+    const { min, max } = timeRange();
+    const range = max - min;
+    if (range <= 0) return "0%";
+    return `${((ts - min) / range) * 100}%`;
+  }
+
+  return (
+    <div class="flex h-full flex-col">
+      {/* Timeline bar visualization */}
+      <div class="border-b px-2 py-1.5">
+        <div class="flex items-center gap-2 text-[10px] text-muted-foreground">
+          <select
+            class="rounded border bg-background px-1 py-0.5 text-xs"
+            value={kindFilter()}
+            onChange={(e) =>
+              setKindFilter(e.currentTarget.value as TimelineEntry["kind"] | "all")
+            }
+          >
+            <option value="all">All</option>
+            <option value="message">Messages</option>
+            <option value="hook">Hook Events</option>
+            <option value="system">System</option>
+          </select>
+          <span>{filteredEntries().length} events</span>
+        </div>
+        {/* Mini timeline bar */}
+        <div class="relative mt-1 h-3 rounded bg-muted">
+          <For each={filteredEntries().slice(-200)}>
+            {(entry) => (
+              <div
+                class={cn("absolute top-0 h-3 w-px", entry.color)}
+                style={{ left: barPosition(entry.timestamp) }}
+                title={`${new Date(entry.timestamp).toLocaleTimeString()} ${entry.label}: ${entry.detail.slice(0, 60)}`}
+              />
+            )}
+          </For>
+        </div>
+      </div>
+
+      {/* Event list */}
+      <div class="flex-1 overflow-auto p-1">
+        <For each={filteredEntries()}>
+          {(entry) => (
+            <div class="group/row flex items-center gap-2 rounded px-2 py-0.5 hover:bg-surface-hover">
+              <span class="shrink-0 text-[10px] text-muted-foreground">
+                {formatTimestamp(entry.timestamp)}
+              </span>
+              <span
+                class={cn(
+                  "w-14 shrink-0 rounded px-1 py-0.5 text-center text-[10px] font-medium",
+                  entry.kind === "hook" && "bg-success/10 text-success",
+                  entry.kind === "system" && "bg-muted text-muted-foreground",
+                  entry.kind === "message" && "bg-primary/10 text-primary",
+                )}
+              >
+                {entry.label}
+              </span>
+              <span class="min-w-0 flex-1 truncate text-xs">{entry.detail}</span>
+              <CopyButton value={entry.detail} class="shrink-0 opacity-0 group-hover/row:opacity-100" />
+            </div>
+          )}
+        </For>
+        <Show when={filteredEntries().length === 0}>
+          <div class="flex h-full items-center justify-center text-xs text-muted-foreground">
+            No timeline events
+          </div>
+        </Show>
+      </div>
     </div>
   );
 }

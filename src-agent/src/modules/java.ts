@@ -1,3 +1,4 @@
+import { JavaRuntime as Java } from "../bridges";
 import { registerHandler } from "../rpc/router";
 import { emitHookEvent } from "../rpc/protocol";
 
@@ -13,6 +14,20 @@ interface JavaHookEntry {
 const javaHooks = new Map<string, JavaHookEntry>();
 let hookCounter = 0;
 
+function isJavaAvailable(): boolean {
+  try {
+    return Java.available;
+  } catch {
+    return false;
+  }
+}
+
+function ensureJavaAvailable(): void {
+  if (!isJavaAvailable()) {
+    throw new Error("Java runtime is not available");
+  }
+}
+
 function toHookInfo(hook: JavaHookEntry) {
   return {
     id: hook.hookId,
@@ -25,11 +40,32 @@ function toHookInfo(hook: JavaHookEntry) {
 }
 
 registerHandler("isJavaAvailable", (_params: unknown) => {
-  return Java.available;
+  return isJavaAvailable();
+});
+
+registerHandler("getAndroidPackageName", (_params: unknown) => {
+  ensureJavaAvailable();
+
+  return new Promise<string | null>((resolve, reject) => {
+    Java.performNow(() => {
+      try {
+        const ActivityThread = Java.use("android.app.ActivityThread");
+        const application = ActivityThread.currentApplication();
+        if (application === null) {
+          resolve(null);
+          return;
+        }
+
+        resolve(application.getPackageName().toString());
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
 });
 
 registerHandler("enumerateJavaClasses", (params: unknown) => {
-  if (!Java.available) throw new Error("Java runtime is not available");
+  ensureJavaAvailable();
 
   const p = (params as { filter?: string }) ?? {};
   const filter = p.filter?.toLowerCase();
@@ -50,7 +86,7 @@ registerHandler("enumerateJavaClasses", (params: unknown) => {
 });
 
 registerHandler("getJavaMethods", (params: unknown) => {
-  if (!Java.available) throw new Error("Java runtime is not available");
+  ensureJavaAvailable();
 
   const { className } = params as { className: string };
 
@@ -96,7 +132,7 @@ registerHandler("getJavaMethods", (params: unknown) => {
 });
 
 registerHandler("getJavaFields", (params: unknown) => {
-  if (!Java.available) throw new Error("Java runtime is not available");
+  ensureJavaAvailable();
 
   const { className } = params as { className: string };
 
@@ -125,7 +161,7 @@ registerHandler("getJavaFields", (params: unknown) => {
 });
 
 registerHandler("hookJavaMethod", (params: unknown) => {
-  if (!Java.available) throw new Error("Java runtime is not available");
+  ensureJavaAvailable();
 
   const { className, methodName, overloadIndex } = params as {
     className: string;
@@ -207,7 +243,7 @@ registerHandler("hookJavaMethod", (params: unknown) => {
 });
 
 registerHandler("unhookJavaMethod", (params: unknown) => {
-  if (!Java.available) throw new Error("Java runtime is not available");
+  ensureJavaAvailable();
 
   const { hookId } = params as { hookId: string };
   const hook = javaHooks.get(hookId);
@@ -231,7 +267,7 @@ registerHandler("unhookJavaMethod", (params: unknown) => {
 });
 
 registerHandler("chooseJavaInstances", (params: unknown) => {
-  if (!Java.available) throw new Error("Java runtime is not available");
+  ensureJavaAvailable();
 
   const { className, maxCount } = params as {
     className: string;
@@ -275,4 +311,189 @@ registerHandler("setJavaHookActive", (params: unknown) => {
 
   hook.active = active;
   return toHookInfo(hook);
+});
+
+// --- Advanced Java Features ---
+
+registerHandler("enumerateJavaClassLoaders", (_params: unknown) => {
+  ensureJavaAvailable();
+
+  return new Promise<unknown[]>((resolve, reject) => {
+    Java.performNow(() => {
+      try {
+        const loaders = Java.enumerateClassLoadersSync();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = loaders.map((loader: any, index: number) => {
+          try {
+            return {
+              index,
+              className: loader.$className ?? "unknown",
+              toString: loader.toString(),
+            };
+          } catch {
+            return {
+              index,
+              className: "unknown",
+              toString: `ClassLoader#${index}`,
+            };
+          }
+        });
+        resolve(result);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+});
+
+registerHandler("getJavaStackTrace", (_params: unknown) => {
+  ensureJavaAvailable();
+
+  return new Promise<string>((resolve, reject) => {
+    Java.performNow(() => {
+      try {
+        const ThreadClass = Java.use("java.lang.Thread");
+        const currentThread = ThreadClass.currentThread();
+        const stackElements = currentThread.getStackTrace();
+        const lines: string[] = [];
+
+        for (let i = 0; i < stackElements.length; i++) {
+          lines.push(stackElements[i].toString());
+        }
+
+        resolve(lines.join("\n"));
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+});
+
+registerHandler("searchJavaHeap", (params: unknown) => {
+  ensureJavaAvailable();
+
+  const { className, filter } = params as {
+    className: string;
+    filter?: string;
+  };
+
+  return new Promise<unknown[]>((resolve, reject) => {
+    Java.performNow(() => {
+      try {
+        const cls = Java.use(className);
+        const declaredFields = cls.class.getDeclaredFields();
+        const fieldNames: string[] = [];
+
+        for (let i = 0; i < declaredFields.length; i++) {
+          declaredFields[i].setAccessible(true);
+          fieldNames.push(declaredFields[i].getName());
+        }
+
+        const instances: unknown[] = [];
+        Java.choose(className, {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          onMatch(instance: any) {
+            const fields: Record<string, string> = {};
+            for (const fieldName of fieldNames) {
+              try {
+                const field = cls.class.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                const value = field.get(instance);
+                fields[fieldName] = value !== null ? String(value) : "null";
+              } catch {
+                fields[fieldName] = "<error reading>";
+              }
+            }
+
+            const entry = {
+              handle: instance.$handle?.toString() ?? "unknown",
+              className: instance.$className,
+              fields,
+            };
+
+            if (filter) {
+              const filterLower = filter.toLowerCase();
+              const matches = Object.values(fields).some(
+                (v) => v.toLowerCase().includes(filterLower),
+              );
+              if (!matches) return;
+            }
+
+            instances.push(entry);
+            if (instances.length >= 50) return "stop";
+          },
+          onComplete() {
+            resolve(instances);
+          },
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+});
+
+registerHandler("callJavaMethod", (params: unknown) => {
+  ensureJavaAvailable();
+
+  const { className, methodName, args, isStatic } = params as {
+    className: string;
+    methodName: string;
+    args: unknown[];
+    isStatic: boolean;
+  };
+
+  return new Promise<unknown>((resolve, reject) => {
+    Java.performNow(() => {
+      try {
+        const cls = Java.use(className);
+
+        if (isStatic) {
+          const method = cls[methodName];
+          if (!method) {
+            throw new Error(`Static method not found: ${className}.${methodName}`);
+          }
+          const result = method.call(cls, ...args);
+          resolve({
+            className,
+            methodName,
+            result: result !== undefined && result !== null ? String(result) : null,
+          });
+        } else {
+          // For instance methods, find a live instance first
+          let resolved = false;
+          Java.choose(className, {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            onMatch(instance: any) {
+              if (resolved) return "stop";
+              try {
+                const method = instance[methodName];
+                if (!method) {
+                  throw new Error(`Instance method not found: ${className}.${methodName}`);
+                }
+                const result = method.call(instance, ...args);
+                resolved = true;
+                resolve({
+                  className,
+                  methodName,
+                  result: result !== undefined && result !== null ? String(result) : null,
+                });
+              } catch (e) {
+                resolved = true;
+                reject(e);
+              }
+              return "stop";
+            },
+            onComplete() {
+              if (!resolved) {
+                reject(new Error(`No live instance found for ${className}`));
+              }
+            },
+          });
+        }
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
 });

@@ -10,6 +10,8 @@ interface DeviceState {
   error: string | null;
 }
 
+type DeviceRemovedPayload = string | { id: string };
+
 const [state, setState] = createStore<DeviceState>({
   devices: [],
   selectedDeviceId: null,
@@ -36,6 +38,23 @@ async function refreshDevices(): Promise<void> {
 
 function selectDevice(id: string): void {
   setState("selectedDeviceId", id);
+}
+
+function extractRemovedDeviceId(payload: DeviceRemovedPayload): string | null {
+  if (typeof payload === "string" && payload.length > 0) {
+    return payload;
+  }
+
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    typeof payload.id === "string" &&
+    payload.id.length > 0
+  ) {
+    return payload.id;
+  }
+
+  return null;
 }
 
 async function addRemoteDevice(address: string): Promise<void> {
@@ -72,7 +91,12 @@ function setupDeviceListeners(): () => void {
     });
   });
 
-  const unlistenRemoved = listen<{ id: string }>("carf://device/removed", ({ id }) => {
+  const unlistenRemoved = listen<DeviceRemovedPayload>("carf://device/removed", (payload) => {
+    const id = extractRemovedDeviceId(payload);
+    if (!id) {
+      return;
+    }
+
     setState("devices", (prev) => prev.filter((d) => d.id !== id));
     if (state.selectedDeviceId === id) {
       setState("selectedDeviceId", null);

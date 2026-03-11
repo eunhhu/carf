@@ -5,6 +5,7 @@ const [activeTab, setActiveTab] = createSignal<TabId>("console");
 const [pendingContext, setPendingContext] = createSignal<
   Record<string, unknown> | undefined
 >();
+const DEFAULT_TAB: TabId = "console";
 
 /**
  * Navigate to a tab with optional context.
@@ -23,6 +24,21 @@ export function consumeNavigationContext(): Record<string, unknown> | undefined 
   const ctx = pendingContext();
   setPendingContext(undefined);
   return ctx;
+}
+
+export function snapshotNavigationState(): {
+	activeTab: TabId;
+} {
+	return {
+		activeTab: activeTab(),
+	};
+}
+
+export function restoreNavigationState(snapshot?: {
+	activeTab: TabId;
+}): void {
+	setActiveTab(snapshot?.activeTab ?? DEFAULT_TAB);
+	setPendingContext(undefined);
 }
 
 export { activeTab, setActiveTab };

@@ -14,20 +14,51 @@ import {
   fetchJavaInstances,
   hookJavaMethod,
 } from "./java.store";
+import { hooksState, deleteHook } from "~/features/hooks/hooks.store";
 import { cn } from "~/lib/cn";
 import { activeSession } from "~/features/session/session.store";
+import { SplitPane } from "~/components/SplitPane";
+import { CopyButton } from "~/components/CopyButton";
+import { InlineActions } from "~/components/InlineActions";
+import {
+  ActionPopover,
+  buildClassActions,
+} from "~/components/ActionPopover";
+import { navigateTo } from "~/lib/navigation";
+import type { JavaMethodInfo } from "~/lib/types";
 
 function JavaTab() {
   createEffect(() => {
-    const session = activeSession();
-    if (session) {
-      checkJavaAvailable(session.id).then(() => {
-        if (javaState.available) {
-          fetchJavaClasses(session.id);
-        }
-      });
-    }
+    const sessionId = activeSession()?.id;
+    if (!sessionId) return;
+
+    void (async () => {
+      const available = await checkJavaAvailable(sessionId);
+      if (available && activeSession()?.id === sessionId) {
+        await fetchJavaClasses(sessionId);
+      }
+    })();
   });
+
+  function getMethodSignature(method: JavaMethodInfo): string {
+    return `${method.returnType} ${method.name}(${method.argumentTypes.join(", ")})`;
+  }
+
+  function findHookForMethod(className: string, methodName: string) {
+    const target = `${className}.${methodName}`;
+    return hooksState.hooks.find(
+      (h) => h.type === "java" && h.target === target,
+    );
+  }
+
+  function handleUnhook(className: string, methodName: string) {
+    const session = activeSession();
+    if (!session) return;
+    const hook = findHookForMethod(className, methodName);
+    if (hook) {
+      deleteHook(session.id, hook);
+    }
+  }
 
   return (
     <div class="flex h-full flex-col">
@@ -55,153 +86,279 @@ function JavaTab() {
         />
       </div>
 
-      {/* Split: Class tree (40%) + Detail (60%) */}
-      <div class="flex flex-1 overflow-hidden">
-        {/* Class list */}
-        <div class="w-[40%] overflow-auto border-r">
-          <Show
-            when={!javaState.classesLoading}
-            fallback={
-              <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
-                Loading classes...
-              </div>
-            }
-          >
-            <For each={filteredJavaClasses()}>
-              {(className) => {
-                const isSelected = () => javaState.selectedClass === className;
-                return (
-                  <button
-                    class={cn(
-                      "flex w-full items-center px-3 py-1 text-left font-mono text-xs transition-colors hover:bg-surface-hover",
-                      isSelected() && "bg-muted",
-                    )}
-                    onClick={() => {
-                      selectJavaClass(className);
-                      const session = activeSession();
-                      if (session) {
-                        fetchJavaMethods(session.id, className);
-                        fetchJavaFields(session.id, className);
-                      }
-                    }}
-                  >
-                    <span class="truncate">{className}</span>
-                  </button>
-                );
-              }}
-            </For>
-          </Show>
-        </div>
-
-        {/* Class detail */}
-        <div class="w-[60%] overflow-auto">
-          <Show
-            when={javaState.selectedClass}
-            fallback={
-              <div class="flex h-full items-center justify-center text-xs text-muted-foreground">
-                Select a class to view details
-              </div>
-            }
-          >
-            <div class="p-4">
-              <h3 class="mb-3 truncate font-mono text-sm font-semibold">
-                {javaState.selectedClass}
-              </h3>
-
-              {/* Sub-tabs */}
-              <div class="flex gap-2 border-b pb-2 text-xs">
-                <For each={["methods", "fields", "instances"] as const}>
-                  {(tab) => (
+      {/* Split: Class list + Detail */}
+      <SplitPane
+        id="java"
+        minLeft={200}
+        maxLeft={400}
+        defaultLeft={280}
+        left={
+          <div class="h-full overflow-auto">
+            <Show
+              when={!javaState.classesLoading}
+              fallback={
+                <div class="flex h-32 items-center justify-center text-xs text-muted-foreground">
+                  Loading classes...
+                </div>
+              }
+            >
+              <For each={filteredJavaClasses()}>
+                {(className) => {
+                  const isSelected = () =>
+                    javaState.selectedClass === className;
+                  return (
                     <button
                       class={cn(
-                        "rounded px-2 py-0.5 capitalize",
-                        javaSubTab() === tab
-                          ? "bg-muted text-foreground"
-                          : "text-muted-foreground hover:text-foreground",
+                        "group/row flex w-full cursor-pointer items-center gap-1 px-3 py-1 text-left font-mono text-xs transition-colors hover:bg-surface-hover",
+                        isSelected() && "bg-muted",
                       )}
-                      onClick={() => setJavaSubTab(tab)}
-                    >
-                      {tab}
-                      <Show when={tab === "instances"}>
-                        <span class="ml-1 text-[10px] text-primary">(heap)</span>
-                      </Show>
-                    </button>
-                  )}
-                </For>
-              </div>
-
-              {/* Methods */}
-              <Show when={javaSubTab() === "methods"}>
-                <div class="mt-2">
-                  <For each={javaState.methods}>
-                    {(method) => (
-                      <div class="flex items-center gap-2 py-0.5 text-xs">
-                        <Show when={method.hooked}>
-                          <span class="rounded bg-primary/10 px-1 text-[10px] text-primary">
-                            H
-                          </span>
-                        </Show>
-                        <span class="text-muted-foreground">
-                          {method.returnType}
-                        </span>
-                        <span class="font-mono font-medium">{method.name}</span>
-                        <span class="text-muted-foreground">
-                          ({method.argumentTypes.join(", ")})
-                        </span>
-                        <button
-                          class="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] hover:bg-primary/10 hover:text-primary"
-                          onClick={() => {
-                            const session = activeSession();
-                            if (session && javaState.selectedClass) {
-                              hookJavaMethod(session.id, javaState.selectedClass, method.name);
-                            }
-                          }}
-                        >
-                          Hook
-                        </button>
-                      </div>
-                    )}
-                  </For>
-                  <Show when={javaState.methods.length === 0 && !javaState.detailLoading}>
-                    <div class="py-4 text-center text-xs text-muted-foreground">
-                      No methods loaded
-                    </div>
-                  </Show>
-                </div>
-              </Show>
-
-              {/* Instances */}
-              <Show when={javaSubTab() === "instances"}>
-                <div class="mt-2">
-                  <div class="mb-2 text-xs text-muted-foreground">
-                    Heap instances via Java.choose()
-                  </div>
-                  <For each={javaState.instances}>
-                    {(instance, idx) => (
-                      <div class="py-0.5 font-mono text-xs">
-                        [{idx()}] {String(instance)}
-                      </div>
-                    )}
-                  </For>
-                  <Show when={javaState.instances.length === 0}>
-                    <button
-                      class="rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90"
                       onClick={() => {
+                        selectJavaClass(className);
                         const session = activeSession();
-                        if (session && javaState.selectedClass) {
-                          fetchJavaInstances(session.id, javaState.selectedClass);
+                        if (session) {
+                          fetchJavaMethods(session.id, className);
+                          fetchJavaFields(session.id, className);
                         }
                       }}
                     >
-                      Enumerate Instances
+                      <ActionPopover
+                        type="class"
+                        value={className}
+                        actions={buildClassActions(className, "java")}
+                        class="truncate"
+                      >
+                        <span class="truncate" title={className}>
+                          {className}
+                        </span>
+                      </ActionPopover>
+                      <CopyButton
+                        value={className}
+                        class="ml-auto opacity-0 group-hover/row:opacity-100"
+                      />
                     </button>
-                  </Show>
+                  );
+                }}
+              </For>
+            </Show>
+          </div>
+        }
+        right={
+          <div class="h-full overflow-auto">
+            <Show
+              when={javaState.selectedClass}
+              fallback={
+                <div class="flex h-full items-center justify-center text-xs text-muted-foreground">
+                  Select a class to view details
                 </div>
-              </Show>
-            </div>
-          </Show>
-        </div>
-      </div>
+              }
+            >
+              <div class="p-4">
+                <div class="mb-3 flex items-center gap-2">
+                  <h3
+                    class="truncate font-mono text-sm font-semibold"
+                    title={javaState.selectedClass!}
+                  >
+                    {javaState.selectedClass}
+                  </h3>
+                  <CopyButton value={javaState.selectedClass!} />
+                </div>
+
+                {/* Sub-tabs */}
+                <div class="flex gap-2 border-b pb-2 text-xs">
+                  <For each={["methods", "fields", "instances"] as const}>
+                    {(tab) => (
+                      <button
+                        class={cn(
+                          "cursor-pointer rounded px-2 py-0.5 capitalize",
+                          javaSubTab() === tab
+                            ? "bg-muted text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                        onClick={() => setJavaSubTab(tab)}
+                      >
+                        {tab}
+                        <Show when={tab === "instances"}>
+                          <span class="ml-1 text-[10px] text-primary">
+                            (heap)
+                          </span>
+                        </Show>
+                      </button>
+                    )}
+                  </For>
+                </div>
+
+                {/* Methods */}
+                <Show when={javaSubTab() === "methods"}>
+                  <div class="mt-2">
+                    <For each={javaState.methods}>
+                      {(method) => {
+                        const sig = () => getMethodSignature(method);
+                        const hooked = () => method.hooked;
+                        return (
+                          <div
+                            class="group/row flex items-center gap-2 py-0.5 text-xs"
+                            title={sig()}
+                          >
+                            <Show when={hooked()}>
+                              <span class="rounded bg-primary/10 px-1 text-[10px] text-primary">
+                                H
+                              </span>
+                            </Show>
+                            <span class="text-muted-foreground">
+                              {method.returnType}
+                            </span>
+                            <span class="font-mono font-medium">
+                              {method.name}
+                            </span>
+                            <span class="text-muted-foreground">
+                              ({method.argumentTypes.join(", ")})
+                            </span>
+                            <CopyButton
+                              value={sig()}
+                              class="opacity-0 group-hover/row:opacity-100"
+                            />
+                            <div class="ml-auto">
+                              <InlineActions
+                                primary={[
+                                  hooked()
+                                    ? {
+                                        label: "Unhook",
+                                        variant: "danger",
+                                        onClick: (e: MouseEvent) => {
+                                          e.stopPropagation();
+                                          if (javaState.selectedClass) {
+                                            handleUnhook(
+                                              javaState.selectedClass,
+                                              method.name,
+                                            );
+                                          }
+                                        },
+                                      }
+                                    : {
+                                        label: "Hook",
+                                        variant: "primary",
+                                        onClick: (e: MouseEvent) => {
+                                          e.stopPropagation();
+                                          const session = activeSession();
+                                          if (
+                                            session &&
+                                            javaState.selectedClass
+                                          ) {
+                                            hookJavaMethod(
+                                              session.id,
+                                              javaState.selectedClass,
+                                              method.name,
+                                            );
+                                          }
+                                        },
+                                      },
+                                ]}
+                                overflow={[
+                                  {
+                                    label: "Copy Method Signature",
+                                    onClick: () => {
+                                      navigator.clipboard.writeText(sig());
+                                    },
+                                  },
+                                  {
+                                    label: "View Hook Events",
+                                    onClick: () => {
+                                      navigateTo({ tab: "console" });
+                                    },
+                                  },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                        );
+                      }}
+                    </For>
+                    <Show
+                      when={
+                        javaState.methods.length === 0 &&
+                        !javaState.detailLoading
+                      }
+                    >
+                      <div class="py-4 text-center text-xs text-muted-foreground">
+                        No methods loaded
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
+
+                {/* Fields */}
+                <Show when={javaSubTab() === "fields"}>
+                  <div class="mt-2">
+                    <For each={javaState.fields}>
+                      {(field) => (
+                        <div class="group/row flex items-center gap-2 py-0.5 text-xs">
+                          <span class="text-muted-foreground">
+                            {field.type}
+                          </span>
+                          <span class="font-mono font-medium">
+                            {field.name}
+                          </span>
+                          <CopyButton
+                            value={`${field.type} ${field.name}`}
+                            class="opacity-0 group-hover/row:opacity-100"
+                          />
+                          <Show when={field.value !== undefined}>
+                            <span class="ml-auto font-mono text-primary">
+                              = {String(field.value)}
+                            </span>
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                    <Show
+                      when={
+                        javaState.fields.length === 0 &&
+                        !javaState.detailLoading
+                      }
+                    >
+                      <div class="py-4 text-center text-xs text-muted-foreground">
+                        No fields loaded
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
+
+                {/* Instances */}
+                <Show when={javaSubTab() === "instances"}>
+                  <div class="mt-2">
+                    <div class="mb-2 text-xs text-muted-foreground">
+                      Heap instances via Java.choose()
+                    </div>
+                    <For each={javaState.instances}>
+                      {(instance, idx) => (
+                        <div class="py-0.5 font-mono text-xs">
+                          [{idx()}] {String(instance)}
+                        </div>
+                      )}
+                    </For>
+                    <Show when={javaState.instances.length === 0}>
+                      <button
+                        class="cursor-pointer rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90"
+                        onClick={() => {
+                          const session = activeSession();
+                          if (session && javaState.selectedClass) {
+                            fetchJavaInstances(
+                              session.id,
+                              javaState.selectedClass,
+                            );
+                          }
+                        }}
+                      >
+                        Enumerate Instances
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+          </div>
+        }
+      />
     </div>
   );
 }

@@ -4,9 +4,14 @@ import type {
 	ConsoleSource,
 	HookEvent,
 	NetworkRequest,
+	StalkerEvent,
 } from "~/lib/types";
 
 let networkRequestCounter = 0;
+const pendingNativeNetworkRequests = new Map<
+	string,
+	{ id: string; method: string; url: string; timestamp: number }
+>();
 
 function asRecord(value: unknown): Record<string, unknown> | null {
 	if (typeof value !== "object" || value === null) {
@@ -47,6 +52,17 @@ function buildHookTarget(payload: Record<string, unknown>): string {
 	}
 
 	return "unknown";
+}
+
+export function extractEventSessionId(payload: unknown): string | null {
+	const record = asRecord(payload);
+	if (!record) {
+		return null;
+	}
+
+	return typeof record.sessionId === "string" && record.sessionId.length > 0
+		? record.sessionId
+		: null;
 }
 
 export function normalizeConsoleMessagePayload(
@@ -108,6 +124,8 @@ export function normalizeHookEventPayload(payload: unknown): HookEvent {
 	});
 
 	return {
+		sessionId:
+			typeof record.sessionId === "string" ? record.sessionId : undefined,
 		hookId:
 			typeof record.hookId === "string" && record.hookId.length > 0
 				? record.hookId
@@ -125,6 +143,100 @@ export function normalizeHookEventPayload(payload: unknown): HookEvent {
 		retval: record.retval ?? null,
 		backtrace,
 	};
+}
+
+function normalizeSingleStalkerEvent(payload: unknown): StalkerEvent | null {
+	const record = asRecord(payload);
+	if (record) {
+		const type = record.type;
+		if (
+			type === "call" ||
+			type === "ret" ||
+			type === "exec" ||
+			type === "block"
+		) {
+			return {
+				sessionId:
+					typeof record.sessionId === "string" ? record.sessionId : undefined,
+				threadId: typeof record.threadId === "number" ? record.threadId : -1,
+				type,
+				from:
+					typeof record.from === "string"
+						? record.from
+						: typeof record.to === "string"
+							? record.to
+							: "0x0",
+				to:
+					typeof record.to === "string"
+						? record.to
+						: typeof record.from === "string"
+							? record.from
+							: "0x0",
+				fromModule:
+					typeof record.fromModule === "string" ? record.fromModule : null,
+				toModule: typeof record.toModule === "string" ? record.toModule : null,
+				fromSymbol:
+					typeof record.fromSymbol === "string" ? record.fromSymbol : null,
+				toSymbol: typeof record.toSymbol === "string" ? record.toSymbol : null,
+				depth: typeof record.depth === "number" ? record.depth : 0,
+				count: typeof record.count === "number" ? record.count : 1,
+			};
+		}
+	}
+
+	if (!Array.isArray(payload) || payload.length === 0) {
+		return null;
+	}
+
+	const [type, fromValue, toValue, depthValue] = payload as [
+		unknown,
+		unknown,
+		unknown?,
+		unknown?,
+	];
+
+	if (
+		type !== "call" &&
+		type !== "ret" &&
+		type !== "exec" &&
+		type !== "block"
+	) {
+		return null;
+	}
+
+	const from =
+		type === "exec" ? String(fromValue ?? "0x0") : String(fromValue ?? "0x0");
+	const to =
+		type === "exec"
+			? String(fromValue ?? "0x0")
+			: String(toValue ?? fromValue ?? "0x0");
+
+	return {
+		threadId: -1,
+		type,
+		from,
+		to,
+		fromModule: null,
+		toModule: null,
+		fromSymbol: null,
+		toSymbol: null,
+		depth:
+			type === "call" || type === "ret"
+				? typeof depthValue === "number"
+					? depthValue
+					: 0
+				: 0,
+		count: 1,
+	};
+}
+
+export function normalizeStalkerEventPayload(payload: unknown): StalkerEvent[] {
+	const record = asRecord(payload);
+	const rawEvents = Array.isArray(record?.events) ? record.events : [payload];
+
+	return rawEvents
+		.map((event) => normalizeSingleStalkerEvent(event))
+		.filter((event): event is StalkerEvent => event !== null);
 }
 
 function nextNetworkRequestId(): string {
@@ -156,13 +268,14 @@ export function normalizeNetworkRequestPayload(
 		return null;
 	}
 
-	if (
-		typeof record.id === "string" &&
-		typeof record.url === "string" &&
-		typeof record.method === "string"
-	) {
+	if (typeof record.url === "string" && typeof record.method === "string") {
 		return {
-			id: record.id,
+			sessionId:
+				typeof record.sessionId === "string" ? record.sessionId : undefined,
+			id:
+				typeof record.id === "string" && record.id.length > 0
+					? record.id
+					: nextNetworkRequestId(),
 			timestamp:
 				typeof record.timestamp === "number" ? record.timestamp : Date.now(),
 			method: record.method,
@@ -190,8 +303,50 @@ export function normalizeNetworkRequestPayload(
 	}
 
 	const http = asRecord(record.http);
+	const preview =
+		typeof record.preview === "string" && record.preview.length > 0
+			? record.preview
+			: null;
+	const sessionId =
+		typeof record.sessionId === "string" ? record.sessionId : undefined;
+	const connectionId =
+		typeof record.ssl === "string" && record.ssl.length > 0 ? record.ssl : null;
 	if (!http) {
-		return null;
+		if (!preview) {
+			return null;
+		}
+
+		const direction = record.direction === "incoming" ? "incoming" : "outgoing";
+		const pending =
+			connectionId !== null
+				? (pendingNativeNetworkRequests.get(connectionId) ?? null)
+				: null;
+		const url =
+			pending?.url ??
+			(typeof record.ssl === "string"
+				? `tls://${record.ssl}`
+				: "tls://unknown");
+		const method =
+			pending?.method ?? (direction === "incoming" ? "TLS_READ" : "TLS_WRITE");
+
+		return {
+			sessionId,
+			id: pending?.id ?? nextNetworkRequestId(),
+			timestamp:
+				typeof record.timestamp === "number"
+					? record.timestamp
+					: (pending?.timestamp ?? Date.now()),
+			method,
+			url,
+			statusCode: null,
+			requestHeaders: {},
+			responseHeaders: {},
+			requestBody: direction === "outgoing" ? preview : null,
+			responseBody: direction === "incoming" ? preview : null,
+			duration: null,
+			protocol: "https",
+			source: "native",
+		};
 	}
 
 	const timestamp =
@@ -200,12 +355,24 @@ export function normalizeNetworkRequestPayload(
 
 	if (http.direction === "request" && typeof http.path === "string") {
 		const requestHeaders = asStringRecord(http.headers);
+		const url = buildRequestUrl(requestHeaders, http.path, protocol);
+		const id = nextNetworkRequestId();
+
+		if (connectionId !== null) {
+			pendingNativeNetworkRequests.set(connectionId, {
+				id,
+				method: typeof http.method === "string" ? http.method : "GET",
+				timestamp,
+				url,
+			});
+		}
 
 		return {
-			id: nextNetworkRequestId(),
+			sessionId,
+			id,
 			timestamp,
 			method: typeof http.method === "string" ? http.method : "GET",
-			url: buildRequestUrl(requestHeaders, http.path, protocol),
+			url,
 			statusCode: null,
 			requestHeaders,
 			responseHeaders: {},
@@ -218,14 +385,24 @@ export function normalizeNetworkRequestPayload(
 	}
 
 	if (http.direction === "response") {
+		const pending =
+			connectionId !== null
+				? (pendingNativeNetworkRequests.get(connectionId) ?? null)
+				: null;
+		if (connectionId !== null) {
+			pendingNativeNetworkRequests.delete(connectionId);
+		}
+
 		return {
-			id: nextNetworkRequestId(),
-			timestamp,
-			method: "RESPONSE",
+			sessionId,
+			id: pending?.id ?? nextNetworkRequestId(),
+			timestamp: pending?.timestamp ?? timestamp,
+			method: pending?.method ?? "RESPONSE",
 			url:
-				typeof record.ssl === "string"
+				pending?.url ??
+				(typeof record.ssl === "string"
 					? `tls://${record.ssl}`
-					: "tls://response",
+					: "tls://response"),
 			statusCode: typeof http.statusCode === "number" ? http.statusCode : null,
 			requestHeaders: {},
 			responseHeaders: asStringRecord(http.headers),

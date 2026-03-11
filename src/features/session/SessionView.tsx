@@ -7,8 +7,10 @@ import {
 	clearMessages,
 } from "~/features/console/console.store";
 import { recordHookEvent } from "~/features/hooks/hooks.store";
+import { fetchHooks, hooksState } from "~/features/hooks/hooks.store";
+import { memoryState } from "~/features/memory/memory.store";
 import { fetchRanges } from "~/features/memory/memory.store";
-import { fetchModules } from "~/features/module/module.store";
+import { fetchModules, moduleState } from "~/features/module/module.store";
 import {
 	activeSession,
 	updateSessionStatus,
@@ -19,6 +21,7 @@ import {
 	toggleInspector,
 } from "~/features/settings/settings.store";
 import {
+	extractEventSessionId,
 	normalizeConsoleMessagePayload,
 	normalizeHookEventPayload,
 } from "~/lib/event-normalizers";
@@ -45,6 +48,15 @@ export function SessionView() {
 		if (!session) return;
 
 		const sessionId = session.id;
+		if (hooksState.hooks.length === 0) {
+			fetchHooks(sessionId).catch(() => {});
+		}
+		if (activeTab() === "modules" && moduleState.modules.length === 0) {
+			fetchModules(sessionId).catch(() => {});
+		}
+		if (activeTab() === "memory" && memoryState.ranges.length === 0) {
+			fetchRanges(sessionId).catch(() => {});
+		}
 
 		const unlistenMessage = listen<{
 			level: "log" | "warn" | "error" | "info" | "debug";
@@ -52,11 +64,17 @@ export function SessionView() {
 			content: string;
 			data?: unknown;
 		}>("carf://console/message", (payload) => {
+			if (extractEventSessionId(payload) !== sessionId) {
+				return;
+			}
 			const message = normalizeConsoleMessagePayload(payload);
 			addMessage(message.level, message.source, message.content, message.data);
 		});
 
 		const unlistenHook = listen<HookEvent>("carf://hook/event", (payload) => {
+			if (extractEventSessionId(payload) !== sessionId) {
+				return;
+			}
 			const event = normalizeHookEventPayload(payload);
 			addConsoleHookEvent(event);
 			recordHookEvent(event);

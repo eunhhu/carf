@@ -1,10 +1,18 @@
 import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { addHook } from "~/features/hooks/hooks.store";
+import { activeSession } from "~/features/session/session.store";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
 import type { HookInfo, JavaFieldInfo, JavaMethodInfo } from "~/lib/types";
 
 type JavaSubTab = "methods" | "fields" | "instances";
+type JavaRequestKind =
+	| "availability"
+	| "classes"
+	| "methods"
+	| "fields"
+	| "instances";
 
 interface JavaState {
 	classes: string[];
@@ -17,7 +25,7 @@ interface JavaState {
 	available: boolean | null;
 }
 
-const [state, setState] = createStore<JavaState>({
+const DEFAULT_STATE: JavaState = {
 	classes: [],
 	classesLoading: false,
 	selectedClass: null,
@@ -26,10 +34,57 @@ const [state, setState] = createStore<JavaState>({
 	instances: [],
 	detailLoading: false,
 	available: null,
+};
+
+const [state, setState] = createStore<JavaState>({
+	...DEFAULT_STATE,
 });
 
 const [searchQuery, setSearchQuery] = createSignal("");
 const [subTab, setSubTab] = createSignal<JavaSubTab>("methods");
+const requestVersions = new Map<
+	string,
+	Record<JavaRequestKind, number>
+>();
+
+function getRequestVersions(
+	sessionId: string,
+): Record<JavaRequestKind, number> {
+	const existing = requestVersions.get(sessionId);
+	if (existing) {
+		return existing;
+	}
+
+	const created = {
+		availability: 0,
+		classes: 0,
+		methods: 0,
+		fields: 0,
+		instances: 0,
+	};
+	requestVersions.set(sessionId, created);
+	return created;
+}
+
+function beginRequest(
+	sessionId: string,
+	kind: JavaRequestKind,
+): number {
+	const versions = getRequestVersions(sessionId);
+	versions[kind] += 1;
+	return versions[kind];
+}
+
+function shouldCommitRequest(
+	sessionId: string,
+	kind: JavaRequestKind,
+	requestId: number,
+): boolean {
+	return (
+		getRequestVersions(sessionId)[kind] === requestId &&
+		activeSession()?.id === sessionId
+	);
+}
 
 const filteredClasses = () => {
 	const query = searchQuery().toLowerCase();
@@ -74,16 +129,57 @@ function setDetailLoading(loading: boolean): void {
 	setState("detailLoading", loading);
 }
 
-async function checkJavaAvailable(sessionId: string): Promise<void> {
+function resetJavaState(): void {
+	setState(restoreStore(DEFAULT_STATE));
+	setSearchQuery("");
+	setSubTab("methods");
+}
+
+function snapshotJavaState(): {
+	state: JavaState;
+	searchQuery: string;
+	subTab: JavaSubTab;
+} {
+	return {
+		state: snapshotStore(state),
+		searchQuery: searchQuery(),
+		subTab: subTab(),
+	};
+}
+
+function restoreJavaState(snapshot?: {
+	state: JavaState;
+	searchQuery: string;
+	subTab: JavaSubTab;
+}): void {
+	if (!snapshot) {
+		resetJavaState();
+		return;
+	}
+
+	setState(restoreStore(snapshot.state));
+	setSearchQuery(snapshot.searchQuery);
+	setSubTab(snapshot.subTab);
+}
+
+async function checkJavaAvailable(sessionId: string): Promise<boolean> {
+	const requestId = beginRequest(sessionId, "availability");
 	try {
 		const result = await invoke<boolean>("rpc_call", {
 			sessionId,
 			method: "isJavaAvailable",
 			params: {},
 		});
-		setAvailable(result);
+		if (shouldCommitRequest(sessionId, "availability", requestId)) {
+			setAvailable(result);
+		}
+		return result;
 	} catch (e) {
 		console.error("checkJavaAvailable error:", e);
+		if (shouldCommitRequest(sessionId, "availability", requestId)) {
+			setAvailable(false);
+		}
+		return false;
 	}
 }
 
@@ -91,6 +187,7 @@ async function fetchJavaClasses(
 	sessionId: string,
 	filter?: string,
 ): Promise<void> {
+	const requestId = beginRequest(sessionId, "classes");
 	setClassesLoading(true);
 	try {
 		const result = await invoke<string[]>("rpc_call", {
@@ -98,9 +195,13 @@ async function fetchJavaClasses(
 			method: "enumerateJavaClasses",
 			params: { filter },
 		});
-		setClasses(result);
+		if (shouldCommitRequest(sessionId, "classes", requestId)) {
+			setClasses(result);
+		}
 	} catch (e) {
-		setState({ classesLoading: false });
+		if (shouldCommitRequest(sessionId, "classes", requestId)) {
+			setState({ classesLoading: false });
+		}
 		console.error("fetchJavaClasses error:", e);
 	}
 }
@@ -109,6 +210,7 @@ async function fetchJavaMethods(
 	sessionId: string,
 	className: string,
 ): Promise<void> {
+	const requestId = beginRequest(sessionId, "methods");
 	setDetailLoading(true);
 	try {
 		const result = await invoke<JavaMethodInfo[]>("rpc_call", {
@@ -116,9 +218,13 @@ async function fetchJavaMethods(
 			method: "getJavaMethods",
 			params: { className },
 		});
-		setMethods(result);
+		if (shouldCommitRequest(sessionId, "methods", requestId)) {
+			setMethods(result);
+		}
 	} catch (e) {
-		setState({ detailLoading: false });
+		if (shouldCommitRequest(sessionId, "methods", requestId)) {
+			setState({ detailLoading: false });
+		}
 		console.error("fetchJavaMethods error:", e);
 	}
 }
@@ -127,13 +233,16 @@ async function fetchJavaFields(
 	sessionId: string,
 	className: string,
 ): Promise<void> {
+	const requestId = beginRequest(sessionId, "fields");
 	try {
 		const result = await invoke<JavaFieldInfo[]>("rpc_call", {
 			sessionId,
 			method: "getJavaFields",
 			params: { className },
 		});
-		setFields(result);
+		if (shouldCommitRequest(sessionId, "fields", requestId)) {
+			setFields(result);
+		}
 	} catch (e) {
 		console.error("fetchJavaFields error:", e);
 	}
@@ -144,13 +253,16 @@ async function fetchJavaInstances(
 	className: string,
 	maxCount?: number,
 ): Promise<void> {
+	const requestId = beginRequest(sessionId, "instances");
 	try {
 		const result = await invoke<unknown[]>("rpc_call", {
 			sessionId,
 			method: "chooseJavaInstances",
 			params: { className, maxCount: maxCount ?? 10 },
 		});
-		setInstances(result);
+		if (shouldCommitRequest(sessionId, "instances", requestId)) {
+			setInstances(result);
+		}
 	} catch (e) {
 		console.error("fetchJavaInstances error:", e);
 	}
@@ -167,6 +279,9 @@ async function hookJavaMethod(
 			method: "hookJavaMethod",
 			params: { className, methodName },
 		});
+		if (activeSession()?.id !== sessionId) {
+			return;
+		}
 		addHook(hook);
 		setState("methods", (method) => method.name === methodName, "hooked", true);
 	} catch (e) {
@@ -189,10 +304,13 @@ export {
 	setAvailable as setJavaAvailable,
 	setClassesLoading as setJavaClassesLoading,
 	setDetailLoading as setJavaDetailLoading,
+	resetJavaState,
 	checkJavaAvailable,
 	fetchJavaClasses,
 	fetchJavaMethods,
 	fetchJavaFields,
 	fetchJavaInstances,
 	hookJavaMethod,
+	snapshotJavaState,
+	restoreJavaState,
 };
