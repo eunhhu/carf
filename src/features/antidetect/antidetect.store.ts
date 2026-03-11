@@ -1,0 +1,179 @@
+import { createStore } from "solid-js/store";
+import { activeSession } from "~/features/session/session.store";
+import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
+import { invoke } from "~/lib/tauri";
+import type { BypassResult, CloakStatus } from "~/lib/types";
+
+interface AntiDetectState {
+	cloakStatus: CloakStatus | null;
+	statusLoading: boolean;
+	sslBypass: BypassResult | null;
+	rootBypass: BypassResult | null;
+	sslBypassing: boolean;
+	rootBypassing: boolean;
+}
+
+const DEFAULT_STATE: AntiDetectState = {
+	cloakStatus: null,
+	statusLoading: false,
+	sslBypass: null,
+	rootBypass: null,
+	sslBypassing: false,
+	rootBypassing: false,
+};
+
+const [state, setState] = createStore<AntiDetectState>({
+	...DEFAULT_STATE,
+});
+
+function resetAntiDetectState(): void {
+	setState(restoreStore(DEFAULT_STATE));
+}
+
+function snapshotAntiDetectState(): { state: AntiDetectState } {
+	return { state: snapshotStore(state) };
+}
+
+function restoreAntiDetectState(snapshot?: { state: AntiDetectState }): void {
+	if (!snapshot) {
+		resetAntiDetectState();
+		return;
+	}
+	setState(restoreStore(snapshot.state));
+}
+
+async function fetchCloakStatus(sessionId: string): Promise<void> {
+	setState("statusLoading", true);
+	try {
+		const result = await invoke<CloakStatus>("rpc_call", {
+			sessionId,
+			method: "getCloakStatus",
+			params: {},
+		});
+		if (activeSession()?.id !== sessionId) return;
+		setState({ cloakStatus: result, statusLoading: false });
+	} catch (e) {
+		setState("statusLoading", false);
+		console.error("fetchCloakStatus error:", e);
+	}
+}
+
+async function cloakThread(
+	sessionId: string,
+	threadId: number,
+): Promise<void> {
+	try {
+		await invoke<void>("rpc_call", {
+			sessionId,
+			method: "cloakThread",
+			params: { threadId },
+		});
+		if (activeSession()?.id === sessionId) {
+			await fetchCloakStatus(sessionId);
+		}
+	} catch (e) {
+		console.error("cloakThread error:", e);
+	}
+}
+
+async function uncloakThread(
+	sessionId: string,
+	threadId: number,
+): Promise<void> {
+	try {
+		await invoke<void>("rpc_call", {
+			sessionId,
+			method: "uncloakThread",
+			params: { threadId },
+		});
+		if (activeSession()?.id === sessionId) {
+			await fetchCloakStatus(sessionId);
+		}
+	} catch (e) {
+		console.error("uncloakThread error:", e);
+	}
+}
+
+async function cloakRange(
+	sessionId: string,
+	base: string,
+	size: number,
+): Promise<void> {
+	try {
+		await invoke<void>("rpc_call", {
+			sessionId,
+			method: "cloakRange",
+			params: { base, size },
+		});
+		if (activeSession()?.id === sessionId) {
+			await fetchCloakStatus(sessionId);
+		}
+	} catch (e) {
+		console.error("cloakRange error:", e);
+	}
+}
+
+async function uncloakRange(
+	sessionId: string,
+	base: string,
+	size: number,
+): Promise<void> {
+	try {
+		await invoke<void>("rpc_call", {
+			sessionId,
+			method: "uncloakRange",
+			params: { base, size },
+		});
+		if (activeSession()?.id === sessionId) {
+			await fetchCloakStatus(sessionId);
+		}
+	} catch (e) {
+		console.error("uncloakRange error:", e);
+	}
+}
+
+async function bypassSslPinning(sessionId: string): Promise<void> {
+	setState("sslBypassing", true);
+	try {
+		const result = await invoke<BypassResult>("rpc_call", {
+			sessionId,
+			method: "bypassSslPinning",
+			params: {},
+		});
+		if (activeSession()?.id !== sessionId) return;
+		setState({ sslBypass: result, sslBypassing: false });
+	} catch (e) {
+		setState("sslBypassing", false);
+		console.error("bypassSslPinning error:", e);
+	}
+}
+
+async function bypassRootDetection(sessionId: string): Promise<void> {
+	setState("rootBypassing", true);
+	try {
+		const result = await invoke<BypassResult>("rpc_call", {
+			sessionId,
+			method: "bypassRootDetection",
+			params: {},
+		});
+		if (activeSession()?.id !== sessionId) return;
+		setState({ rootBypass: result, rootBypassing: false });
+	} catch (e) {
+		setState("rootBypassing", false);
+		console.error("bypassRootDetection error:", e);
+	}
+}
+
+export {
+	state as antiDetectState,
+	resetAntiDetectState,
+	snapshotAntiDetectState,
+	restoreAntiDetectState,
+	fetchCloakStatus,
+	cloakThread,
+	uncloakThread,
+	cloakRange,
+	uncloakRange,
+	bypassSslPinning,
+	bypassRootDetection,
+};

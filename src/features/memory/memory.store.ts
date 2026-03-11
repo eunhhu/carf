@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store";
 import { createSignal } from "solid-js";
 import { extractEventSessionId } from "~/lib/event-normalizers";
-import type { MemoryRange, ScanResult } from "~/lib/types";
+import type { MemoryRange, MemoryMonitorEvent, ScanResult } from "~/lib/types";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke, listen } from "~/lib/tauri";
 
@@ -18,6 +18,8 @@ interface MemoryState {
   searchProgress: number;
   searching: boolean;
   monitorActive: boolean;
+  monitorEvents: MemoryMonitorEvent[];
+  monitorHeatmap: number[];
 }
 
 const DEFAULT_STATE: MemoryState = {
@@ -31,6 +33,8 @@ const DEFAULT_STATE: MemoryState = {
   searchProgress: 0,
   searching: false,
   monitorActive: false,
+  monitorEvents: [],
+  monitorHeatmap: Array.from({ length: 256 }, () => 0),
 };
 
 const [state, setState] = createStore<MemoryState>({
@@ -62,6 +66,59 @@ function setSearching(searching: boolean): void {
 
 function setMonitorActive(active: boolean): void {
   setState("monitorActive", active);
+}
+
+let monitorUnlisten: (() => void) | null = null;
+
+async function startMemoryMonitor(
+  sessionId: string,
+  base: string,
+  size: number,
+): Promise<void> {
+  setState({
+    monitorActive: true,
+    monitorEvents: [],
+    monitorHeatmap: Array.from({ length: 256 }, () => 0),
+  });
+
+  monitorUnlisten = listen<MemoryMonitorEvent>(
+    "carf://memory/access",
+    (payload) => {
+      if (extractEventSessionId(payload) !== sessionId) return;
+      setState("monitorEvents", (prev) => [...prev, payload]);
+      const idx = payload.pageIndex % 256;
+      setState("monitorHeatmap", idx, (v) => v + 1);
+    },
+  );
+
+  try {
+    await invoke<void>("rpc_call", {
+      sessionId,
+      method: "startMemoryMonitor",
+      params: { ranges: [{ base, size }] },
+    });
+  } catch (e) {
+    setState("monitorActive", false);
+    monitorUnlisten?.();
+    monitorUnlisten = null;
+    console.error("startMemoryMonitor error:", e);
+  }
+}
+
+async function stopMemoryMonitor(sessionId: string): Promise<void> {
+  try {
+    await invoke<void>("rpc_call", {
+      sessionId,
+      method: "stopMemoryMonitor",
+      params: {},
+    });
+  } catch (e) {
+    console.error("stopMemoryMonitor error:", e);
+  } finally {
+    setState("monitorActive", false);
+    monitorUnlisten?.();
+    monitorUnlisten = null;
+  }
 }
 
 function setRangesLoading(loading: boolean): void {
@@ -221,4 +278,6 @@ export {
   readMemoryAt,
   writeMemoryAt,
   searchMemory,
+  startMemoryMonitor,
+  stopMemoryMonitor,
 };

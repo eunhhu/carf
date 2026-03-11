@@ -24,6 +24,8 @@
    - 3.8 [Stalker Events](#38-stalker-events)
    - 3.9 [Memory Monitor Events](#39-memory-monitor-events)
    - 3.10 [Module Events](#310-module-events)
+   - 3.11 [Thread Events](#311-thread-events)
+   - 3.12 [Module Unload Events](#312-module-unload-events)
 4. [Agent RPC Methods](#4-agent-rpc-methods)
    - 4.1 [Process / Module](#41-process--module)
    - 4.2 [Thread](#42-thread)
@@ -38,6 +40,10 @@
    - 4.11 [Network Monitor](#411-network-monitor)
    - 4.12 [Filesystem](#412-filesystem)
    - 4.13 [Memory Monitor](#413-memory-monitor)
+   - 4.14 [Swift Runtime](#414-swift-runtime)
+   - 4.15 [IL2CPP Runtime (Unity)](#415-il2cpp-runtime-unity)
+   - 4.16 [Anti-Detection](#416-anti-detection)
+   - 4.17 [Symbol Resolver](#417-symbol-resolver)
 5. [Type Definitions](#5-type-definitions)
 6. [Error Codes](#6-error-codes)
 
@@ -1144,12 +1150,80 @@ MemoryAccessMonitor가 메모리 읽기/쓰기를 감지했을 때 수신한다.
 }
 ```
 
+### 3.11 Thread Events
+
+#### `carf://thread/added`
+
+대상 프로세스에서 새로운 스레드가 생성되었을 때 수신한다. `startThreadObserver` 활성화 필요.
+
+| 항목 | 값 |
+|------|-----|
+| **Event** | `carf://thread/added` |
+| **Payload** | `ThreadEventPayload` |
+| **발행 조건** | Thread Observer 활성 상태에서 스레드 생성 시 |
+
+```json
+// payload 예시
+{
+  "id": 12345,
+  "name": "AsyncTask #1"
+}
+```
+
+---
+
+#### `carf://thread/removed`
+
+스레드가 종료되었을 때 수신한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Event** | `carf://thread/removed` |
+| **Payload** | `ThreadEventPayload` |
+| **발행 조건** | Thread Observer 활성 상태에서 스레드 종료 시 |
+
+---
+
+#### `carf://thread/renamed`
+
+스레드 이름이 변경되었을 때 수신한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Event** | `carf://thread/renamed` |
+| **Payload** | `ThreadRenamedPayload` |
+| **발행 조건** | Thread Observer 활성 상태에서 스레드 이름 변경 시 |
+
+```json
+// payload 예시
+{
+  "id": 12345,
+  "name": "WorkerThread-2",
+  "previousName": "AsyncTask #1"
+}
+```
+
+---
+
+### 3.12 Module Unload Events
+
+#### `carf://module/unloaded`
+
+모듈이 언로드되었을 때 수신한다. `startModuleObserver` 활성화 필요.
+
+| 항목 | 값 |
+|------|-----|
+| **Event** | `carf://module/unloaded` |
+| **Payload** | `ModuleInfo` |
+| **발행 조건** | Module Observer 활성 상태에서 모듈 언로드 시 |
+
 ---
 
 ## 4. Agent RPC Methods
 
 Agent RPC 메서드는 `rpc_call` 프록시를 통해 호출한다.
 모든 메서드는 대상 프로세스 내 Agent 스크립트에서 실행된다.
+모든 응답은 `{ success: boolean, data?: unknown, error?: string }` 형태로 래핑된다.
 
 ```typescript
 // 호출 패턴
@@ -2546,6 +2620,369 @@ await invoke("rpc_call", {
 });
 ```
 
+### 4.14 Swift Runtime
+
+#### `isSwiftAvailable`
+
+Swift 런타임이 사용 가능한지 확인한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `isSwiftAvailable` |
+| **Parameters** | 없음 |
+| **Returns** | `boolean` |
+
+---
+
+#### `enumerateSwiftModules`
+
+Swift 모듈 목록을 열거한다. Bridge 사용 가능 시 직접 열거, 불가 시 export 심볼 스캔으로 폴백.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `enumerateSwiftModules` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `SwiftModuleInfo[]` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `filter` | `string` | N | 모듈 이름 필터 (부분 매칭) |
+
+---
+
+#### `demangleSwiftSymbol`
+
+Swift 심볼을 Demangle 한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `demangleSwiftSymbol` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `{ symbol: string, demangled: string, note?: string }` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `symbol` | `string` | Y | Mangle된 Swift 심볼 (`$s...` 접두어) |
+
+---
+
+#### `enumerateSwiftTypes`
+
+특정 Swift 모듈의 타입(class, struct, enum, protocol)을 열거한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `enumerateSwiftTypes` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `SwiftTypeInfo[]` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `moduleName` | `string` | Y | Swift 모듈 이름 |
+| `filter` | `string` | N | 타입 이름 필터 |
+
+---
+
+#### `hookSwiftFunction`
+
+Swift 함수를 Interceptor로 후킹한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `hookSwiftFunction` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `HookInfo` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `target` | `string` | Y | 후킹 대상: hex 주소, `module!symbol`, 또는 심볼 이름 |
+| `captureArgs` | `boolean` | N | 인자 캡처 (기본: true) |
+| `captureRetval` | `boolean` | N | 리턴값 캡처 (기본: true) |
+| `captureBacktrace` | `boolean` | N | 백트레이스 캡처 (기본: false) |
+
+---
+
+#### `unhookSwiftFunction` / `listSwiftHooks` / `setSwiftHookActive`
+
+| Method | Parameters | Returns | 설명 |
+|--------|-----------|---------|------|
+| `unhookSwiftFunction` | `{ hookId: string }` | `{ hookId, removed: boolean }` | Swift 훅 제거 |
+| `listSwiftHooks` | 없음 | `HookInfo[]` | 활성 Swift 훅 목록 |
+| `setSwiftHookActive` | `{ hookId: string, active: boolean }` | `HookInfo` | Swift 훅 활성화/비활성화 |
+
+---
+
+### 4.15 IL2CPP Runtime (Unity)
+
+#### `isIl2cppAvailable`
+
+IL2CPP 런타임이 사용 가능한지 확인한다. `libil2cpp.so`, `GameAssembly.dylib`, `GameAssembly.dll`을 검색.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `isIl2cppAvailable` |
+| **Parameters** | 없음 |
+| **Returns** | `boolean` |
+
+---
+
+#### `getIl2cppInfo`
+
+IL2CPP 런타임 정보를 반환한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `getIl2cppInfo` |
+| **Parameters** | 없음 |
+| **Returns** | `Il2cppInfo` |
+
+```json
+// 응답 예시
+{
+  "available": true,
+  "modulePath": "/data/app/com.example.game/lib/arm64/libil2cpp.so",
+  "version": "29.1"
+}
+```
+
+---
+
+#### `enumerateIl2cppDomains`
+
+IL2CPP 도메인 목록을 열거한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `enumerateIl2cppDomains` |
+| **Parameters** | 없음 |
+| **Returns** | `Il2cppDomain[]` |
+
+---
+
+#### `enumerateIl2cppClasses`
+
+지정 도메인의 클래스 목록을 열거한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `enumerateIl2cppClasses` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `Il2cppClass[]` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `domainIndex` | `number` | N | 도메인 인덱스 (기본: 0) |
+| `filter` | `string` | N | 클래스 이름 필터 |
+
+---
+
+#### `getIl2cppClassMethods` / `getIl2cppClassFields`
+
+| Method | Parameters | Returns | 설명 |
+|--------|-----------|---------|------|
+| `getIl2cppClassMethods` | `{ className, namespace? }` | `Il2cppMethod[]` | 클래스의 메서드 목록 |
+| `getIl2cppClassFields` | `{ className, namespace? }` | `Il2cppField[]` | 클래스의 필드 목록 |
+
+---
+
+#### `hookIl2cppMethod`
+
+IL2CPP 메서드를 Interceptor로 후킹한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `hookIl2cppMethod` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `HookInfo` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `className` | `string` | Y | 클래스 이름 |
+| `methodName` | `string` | Y | 메서드 이름 |
+| `namespace` | `string` | N | 네임스페이스 |
+| `captureArgs` | `boolean` | N | 인자 캡처 (기본: true) |
+| `captureRetval` | `boolean` | N | 리턴값 캡처 (기본: true) |
+| `captureBacktrace` | `boolean` | N | 백트레이스 캡처 (기본: false) |
+
+---
+
+#### `unhookIl2cppMethod` / `listIl2cppHooks` / `setIl2cppHookActive`
+
+| Method | Parameters | Returns | 설명 |
+|--------|-----------|---------|------|
+| `unhookIl2cppMethod` | `{ hookId: string }` | `{ hookId, removed: boolean }` | IL2CPP 훅 제거 |
+| `listIl2cppHooks` | 없음 | `HookInfo[]` | 활성 IL2CPP 훅 목록 |
+| `setIl2cppHookActive` | `{ hookId: string, active: boolean }` | `HookInfo` | IL2CPP 훅 활성화/비활성화 |
+
+---
+
+#### `dumpIl2cppMetadata`
+
+IL2CPP 전체 메타데이터를 덤프한다 (모든 클래스, 메서드, 필드).
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `dumpIl2cppMetadata` |
+| **Parameters** | 없음 |
+| **Returns** | `Il2cppMetadataDump` |
+
+---
+
+### 4.16 Anti-Detection
+
+#### `cloakThread` / `uncloakThread`
+
+Frida 스레드를 은닉/해제한다. 탐지 우회를 위해 Frida 내부 스레드를 숨긴다.
+
+| Method | Parameters | Returns |
+|--------|-----------|---------|
+| `cloakThread` | `{ threadId: number }` | `{ threadId, cloaked: true }` |
+| `uncloakThread` | `{ threadId: number }` | `{ threadId, cloaked: false }` |
+
+---
+
+#### `cloakRange` / `uncloakRange`
+
+메모리 범위를 은닉/해제한다. 탐지 우회를 위해 Frida 메모리 영역을 숨긴다.
+
+| Method | Parameters | Returns |
+|--------|-----------|---------|
+| `cloakRange` | `{ base: string, size: number }` | `{ base, size, cloaked: true }` |
+| `uncloakRange` | `{ base: string, size: number }` | `{ base, size, cloaked: false }` |
+
+---
+
+#### `getCloakStatus`
+
+현재 Cloak 상태를 조회한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `getCloakStatus` |
+| **Parameters** | 없음 |
+| **Returns** | `CloakStatus` |
+
+```json
+// 응답 예시
+{
+  "available": true,
+  "threads": [12345, 12346],
+  "ranges": [
+    { "base": "0x7a12340000", "size": 4096 }
+  ]
+}
+```
+
+---
+
+#### `bypassSslPinning`
+
+SSL Pinning을 우회한다. SSL_get_verify_result, SSL_CTX_set_custom_verify, Java TrustManagerImpl, OkHttp CertificatePinner 등을 후킹.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `bypassSslPinning` |
+| **Parameters** | 없음 |
+| **Returns** | `BypassResult` |
+
+```json
+// 응답 예시
+{
+  "active": true,
+  "hooksInstalled": 4,
+  "message": "SSL pinning bypass enabled: 4 hooks installed"
+}
+```
+
+---
+
+#### `bypassRootDetection`
+
+Root/Jailbreak 탐지를 우회한다. access(), fopen(), stat()의 루트 관련 경로를 차단하고, Android에서는 Runtime.exec, Build.TAGS, PackageManager를 추가 후킹.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `bypassRootDetection` |
+| **Parameters** | 없음 |
+| **Returns** | `BypassResult` |
+
+---
+
+### 4.17 Symbol Resolver
+
+#### `resolveApi`
+
+ApiResolver를 사용하여 패턴 기반으로 심볼을 검색한다.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `resolveApi` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `ResolvedApi[]` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `query` | `string` | Y | 검색 패턴 (예: `exports:*!open*`, `-[UIView *init*]`) |
+| `type` | `string` | N | ApiResolver 타입: `module`, `objc`, `swift` (기본: `module`) |
+
+```typescript
+// 호출 예시
+const results = await invoke("rpc_call", {
+  session_id: sid,
+  method: "resolveApi",
+  params: { query: "exports:libc.so!open*", type: "module" }
+});
+// → [{ name: "open", address: "0x7fff20345678" }, ...]
+```
+
+---
+
+#### `resolveSymbol`
+
+주소를 DebugSymbol로 해석한다 (DWARF 포함).
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `resolveSymbol` |
+| **Parameters** | 아래 표 참조 |
+| **Returns** | `ResolvedSymbol` |
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `address` | `string` | Y | hex 주소 |
+
+```json
+// 응답 예시
+{
+  "address": "0x7fff20345678",
+  "name": "open",
+  "moduleName": "libc.so",
+  "fileName": null,
+  "lineNumber": null
+}
+```
+
+---
+
+#### `findSymbolByName`
+
+이름으로 심볼을 검색한다. 와일드카드(`*`) 지원.
+
+| 항목 | 값 |
+|------|-----|
+| **Method** | `findSymbolByName` |
+| **Parameters** | `{ name: string }` |
+| **Returns** | `SymbolMatch[]` |
+
+---
+
+#### `resolveModuleExport` / `getGlobalExport`
+
+| Method | Parameters | Returns | 설명 |
+|--------|-----------|---------|------|
+| `resolveModuleExport` | `{ module: string, name: string }` | `ResolvedExport` | 특정 모듈의 export 해석 |
+| `getGlobalExport` | `{ name: string }` | `ResolvedExport` | 전역 export 검색 (Module.findGlobalExportByName) |
+
 ---
 
 ## 5. Type Definitions
@@ -2854,7 +3291,7 @@ interface HookInfo {
   /** 대상 주소 (hex, Java 훅은 null) */
   address: string | null;
   /** 훅 유형 */
-  type: "interceptor" | "java" | "objc";
+  type: "interceptor" | "java" | "objc" | "swift" | "il2cpp";
   /** 활성 상태 */
   active: boolean;
 }
@@ -3208,6 +3645,196 @@ type TabId =
   | "files";
 ```
 
+### 5.18 Swift Types
+
+```typescript
+/** Swift 모듈 정보 */
+interface SwiftModuleInfo {
+  /** 모듈 이름 */
+  name: string;
+  /** 모듈 경로 */
+  path: string;
+  /** Swift 심볼 수 (export 기반 추정) */
+  swiftSymbolCount?: number;
+}
+
+/** Swift 타입 정보 */
+interface SwiftTypeInfo {
+  /** 타입 이름 */
+  name: string;
+  /** 타입 종류 */
+  kind: "class" | "struct" | "enum" | "protocol" | "unknown";
+  /** 주소 (hex) */
+  address?: string;
+  /** 메타데이터 포인터 (hex) */
+  metadataPointer?: string;
+}
+```
+
+### 5.19 IL2CPP Types
+
+```typescript
+/** IL2CPP 런타임 정보 */
+interface Il2cppInfo {
+  /** 사용 가능 여부 */
+  available: boolean;
+  /** 런타임 모듈 경로 */
+  modulePath: string;
+  /** IL2CPP 버전 */
+  version?: string;
+}
+
+/** IL2CPP 도메인 */
+interface Il2cppDomain {
+  /** 도메인 인덱스 */
+  index: number;
+  /** 도메인 이름 */
+  name: string;
+  /** 주소 (hex) */
+  address: string;
+}
+
+/** IL2CPP 클래스 */
+interface Il2cppClass {
+  /** 클래스 이름 */
+  name: string;
+  /** 네임스페이스 */
+  namespace: string;
+  /** 주소 (hex) */
+  address: string;
+  /** 클래스 플래그 */
+  flags: number;
+}
+
+/** IL2CPP 메서드 */
+interface Il2cppMethod {
+  /** 메서드 이름 */
+  name: string;
+  /** 메서드 주소 (hex) */
+  address: string;
+  /** 파라미터 수 */
+  parameterCount: number;
+  /** 리턴 타입 */
+  returnType: string;
+  /** 정적 메서드 여부 */
+  isStatic: boolean;
+}
+
+/** IL2CPP 필드 */
+interface Il2cppField {
+  /** 필드 이름 */
+  name: string;
+  /** 필드 타입 */
+  type: string;
+  /** 오프셋 */
+  offset: number;
+  /** 정적 필드 여부 */
+  isStatic: boolean;
+}
+
+/** IL2CPP 메타데이터 덤프 */
+interface Il2cppMetadataDump {
+  /** 도메인 수 */
+  domainCount: number;
+  /** 총 클래스 수 */
+  classCount: number;
+  /** 총 메서드 수 */
+  methodCount: number;
+  /** 클래스별 메타데이터 */
+  classes: Il2cppClass[];
+}
+```
+
+### 5.20 Anti-Detection Types
+
+```typescript
+/** Cloak 상태 */
+interface CloakStatus {
+  /** Cloak API 사용 가능 여부 */
+  available: boolean;
+  /** 은닉된 스레드 ID 목록 */
+  threads: number[];
+  /** 은닉된 메모리 범위 목록 */
+  ranges: { base: string; size: number }[];
+}
+
+/** 바이패스 결과 */
+interface BypassResult {
+  /** 활성화 여부 */
+  active: boolean;
+  /** 설치된 후크 수 */
+  hooksInstalled: number;
+  /** 상태 메시지 */
+  message: string;
+}
+```
+
+### 5.21 Resolver Types
+
+```typescript
+/** API 해석 결과 */
+interface ResolvedApi {
+  /** 심볼 이름 */
+  name: string;
+  /** 주소 (hex) */
+  address: string;
+}
+
+/** 심볼 해석 결과 (DebugSymbol) */
+interface ResolvedSymbol {
+  /** 주소 (hex) */
+  address: string;
+  /** 심볼 이름 */
+  name: string | null;
+  /** 모듈 이름 */
+  moduleName: string | null;
+  /** 소스 파일 (DWARF) */
+  fileName: string | null;
+  /** 소스 라인 (DWARF) */
+  lineNumber: number | null;
+}
+
+/** Export 해석 결과 */
+interface ResolvedExport {
+  /** 심볼 이름 */
+  name: string;
+  /** 주소 (hex) */
+  address: string;
+  /** 소속 모듈 */
+  module: string | null;
+}
+
+/** 심볼 매치 결과 */
+interface SymbolMatch {
+  /** 함수 이름 */
+  name: string;
+  /** 함수 주소 (hex) */
+  address: string;
+}
+```
+
+### 5.22 Thread Observer Types
+
+```typescript
+/** 스레드 이벤트 페이로드 */
+interface ThreadEventPayload {
+  /** 스레드 ID */
+  id: number;
+  /** 스레드 이름 */
+  name: string;
+}
+
+/** 스레드 이름 변경 이벤트 페이로드 */
+interface ThreadRenamedPayload {
+  /** 스레드 ID */
+  id: number;
+  /** 변경 후 이름 */
+  name: string;
+  /** 변경 전 이름 */
+  previousName: string;
+}
+```
+
 ---
 
 ## 6. Error Codes
@@ -3501,5 +4128,5 @@ export function getUserMessage(code: number): string {
 
 ---
 
-*Last updated: 2026-03-10*
+*Last updated: 2026-03-11*
 *Version: 2.0.0-alpha*

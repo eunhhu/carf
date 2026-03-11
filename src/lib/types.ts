@@ -13,7 +13,10 @@ export type TabId =
 	| "pinboard"
 	| "callgraph"
 	| "network"
-	| "files";
+	| "files"
+	| "swift"
+	| "il2cpp"
+	| "antidetect";
 
 export interface TabDefinition {
 	id: TabId;
@@ -36,6 +39,9 @@ export const TAB_DEFINITIONS: TabDefinition[] = [
 	{ id: "callgraph", label: "Call Graph", priority: "P2", shortcutIndex: -1 },
 	{ id: "network", label: "Network", priority: "P2", shortcutIndex: -1 },
 	{ id: "files", label: "Files", priority: "P2", shortcutIndex: -1 },
+	{ id: "swift", label: "Swift", priority: "P2", shortcutIndex: -1 },
+	{ id: "il2cpp", label: "IL2CPP", priority: "P2", shortcutIndex: -1 },
+	{ id: "antidetect", label: "AntiDetect", priority: "P2", shortcutIndex: -1 },
 ];
 
 // ─── Navigation ───
@@ -192,13 +198,13 @@ export interface HookInfo {
 	id: string;
 	target: string;
 	address: string | null;
-	type: "native" | "java" | "objc";
+	type: "native" | "java" | "objc" | "swift" | "il2cpp";
 	active: boolean;
 	hits: number;
 }
 
 export interface HookConfig {
-	type: "native" | "java" | "objc";
+	type: "native" | "java" | "objc" | "swift" | "il2cpp";
 	target: string;
 	address: string | null;
 	options: {

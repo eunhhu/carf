@@ -22,7 +22,6 @@ export interface AttachModalOptions {
 }
 
 interface AttachModalProps {
-  open: boolean;
   /** Whether the selected target has a running PID (attach-capable) */
   canAttach: boolean;
   /** Whether the selected target has an identifier (spawn-capable) */
@@ -82,17 +81,15 @@ export default function AttachModal(props: AttachModalProps) {
   }
 
   return (
-    <Show when={props.open}>
-      {/* Backdrop */}
-      <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-        onClick={handleBackdropClick}
-        onKeyDown={handleKeyDown}
-        tabIndex={-1}
-        ref={(el) => el.focus()}
-      >
-        {/* Modal body */}
-        <div class="w-[480px] rounded-lg border bg-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={handleBackdropClick}
+      onKeyDown={handleKeyDown}
+      tabIndex={-1}
+      ref={(el) => el.focus()}
+    >
+      {/* Modal body */}
+      <div class="w-[480px] rounded-lg border bg-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
           {/* Header */}
           <div class="flex items-center justify-between border-b px-5 py-3">
             <h2 class="text-sm font-semibold text-foreground">Session Options</h2>
@@ -294,8 +291,7 @@ export default function AttachModal(props: AttachModalProps) {
               {mode() === "attach" ? "Attach" : "Spawn & Attach"}
             </button>
           </div>
-        </div>
       </div>
-    </Show>
+    </div>
   );
 }

@@ -472,13 +472,40 @@ Backend에서 Frontend로의 실시간 이벤트는 Tauri Event를 사용한다.
 ```rust
 // 이벤트 정의
 pub mod events {
+    // Device
     pub const DEVICE_ADDED: &str = "carf://device/added";
     pub const DEVICE_REMOVED: &str = "carf://device/removed";
+    pub const DEVICE_CHANGED: &str = "carf://device/changed";
+
+    // Session
     pub const SESSION_DETACHED: &str = "carf://session/detached";
+
+    // Agent
     pub const AGENT_MESSAGE: &str = "carf://agent/message";
     pub const AGENT_LOG: &str = "carf://agent/log";
+
+    // Process
     pub const PROCESS_CRASHED: &str = "carf://process/crashed";
     pub const CHILD_ADDED: &str = "carf://child/added";
+
+    // Hook
+    pub const HOOK_EVENT: &str = "carf://hook/event";
+
+    // Scan
+    pub const SCAN_PROGRESS: &str = "carf://scan/progress";
+    pub const SCAN_RESULT: &str = "carf://scan/result";
+
+    // Observer (Agent → Backend 중계)
+    pub const THREAD_ADDED: &str = "carf://thread/added";
+    pub const THREAD_REMOVED: &str = "carf://thread/removed";
+    pub const THREAD_RENAMED: &str = "carf://thread/renamed";
+    pub const MODULE_LOADED: &str = "carf://module/loaded";
+    pub const MODULE_UNLOADED: &str = "carf://module/unloaded";
+
+    // Stalker / Network / Memory Monitor
+    pub const STALKER_EVENT: &str = "carf://stalker/event";
+    pub const NETWORK_REQUEST: &str = "carf://network/request";
+    pub const MEMORY_ACCESS: &str = "carf://memory/access";
 }
 
 // 이벤트 발행
@@ -583,23 +610,52 @@ Host(Tauri Backend)와 RPC로 통신하며, 성능 크리티컬 로직은 RustMo
 
 ```
 src-agent/src/
-├── index.ts                  # 엔트리포인트, RPC exports 등록
+├── index.ts                  # 엔트리포인트, 16개 모듈 side-effect import
+├── bridges.ts                # 런타임 브릿지 (Java, ObjC, Swift)
 │
 ├── rpc/
-│   ├── router.ts             # 메서드명 → 핸들러 라우팅
-│   ├── types.ts              # RPC 타입 정의
-│   └── protocol.ts           # send/recv 프로토콜 래퍼
+│   ├── router.ts             # registerHandler/createRpcExports
+│   ├── types.ts              # RpcHandler, RpcResponse, AgentEvent
+│   └── protocol.ts           # emitLog/emitHookEvent/emitStalkerEvent 등
 │
-├── modules/                  # 기능 모듈
-│   ├── process.ts            # Process 정보 (modules, threads, ranges)
-│   ├── memory.ts             # 메모리 읽기/쓰기/검색
-│   ├── java.ts               # Java 런타임 (enumerateClasses, hook)
-│   ├── objc.ts               # ObjC 런타임 (enumerateClasses, hook)
-│   ├── native.ts             # Native 함수 (Interceptor, 호출)
-│   ├── stalker.ts            # Stalker (코드 트레이싱)
-│   └── module.ts             # Module 탐색 (exports, imports, symbols)
+├── runtime/
+│   └── frida-compat.ts       # Frida v17 호환성 래퍼
 │
-└── rust/                     # RustModule 소스 (.rs 파일)
+├── types/
+│   ├── frida-rpc.d.ts        # rpc.exports 타입
+│   └── bridges.d.ts          # frida-*-bridge 모듈 선언
+│
+├── modules/                  # 기능 모듈 (16개, ~102 RPC 핸들러)
+│   │
+│   │  ── Core ──
+│   ├── process.ts      [ 4]  # 프로세스 정보, 메모리 범위
+│   ├── module.ts       [10]  # Exports/Imports/Symbols, Observer, Sections, Version
+│   ├── thread.ts       [ 6]  # 열거, 백트레이스, Observer, runOnThread
+│   │
+│   │  ── Memory ──
+│   ├── memory.ts       [10]  # Read/Write/Scan/Patch/Protect/Alloc/Dump/Compare
+│   ├── monitor.ts      [ 4]  # MemoryAccessMonitor (접근 감시)
+│   │
+│   │  ── Runtime Bridges ──
+│   ├── java.ts         [14]  # 클래스/메서드/필드, Heap 검색, ClassLoader
+│   ├── objc.ts         [ 8]  # 클래스/메서드, 인스턴스 검색
+│   ├── swift.ts        [ 8]  # 모듈/타입 열거, Demangle, 후킹
+│   ├── il2cpp.ts       [11]  # Unity IL2CPP, 도메인/클래스, 메타데이터 덤프
+│   ├── native.ts       [ 5]  # Interceptor 후킹, NativeFunction 호출
+│   │
+│   │  ── Tracing ──
+│   ├── stalker.ts      [ 4]  # 코드 트레이싱, Summary/Sampling 모드
+│   │
+│   │  ── I/O ──
+│   ├── network.ts      [ 3]  # SSL/HTTP 캡처, Java 네트워크 후킹
+│   ├── filesystem.ts   [ 4]  # 디렉토리 탐색, File I/O, SQLite
+│   ├── console.ts      [ 1]  # REPL evaluate
+│   │
+│   │  ── Security & Utility ──
+│   ├── resolver.ts     [ 5]  # ApiResolver, DebugSymbol, Export 룩업
+│   └── antidetect.ts   [ 7]  # Cloak API, SSL/Root Bypass
+│
+└── rust/                     # RustModule 소스 (Phase 5)
     ├── scanner.rs            # 고속 메모리 패턴 스캔
     ├── hooks.rs              # Interceptor onEnter/onLeave 핫 콜백
     └── stalker_cb.rs         # Stalker transform 콜백
@@ -609,137 +665,192 @@ src-agent/src/
 
 ```typescript
 // rpc/router.ts
-type RpcHandler = (params: any) => any;
+type RpcHandler = (params: unknown) => unknown | Promise<unknown>;
 
 const handlers = new Map<string, RpcHandler>();
 
-export function registerHandler(method: string, handler: RpcHandler) {
+export function registerHandler(method: string, handler: RpcHandler): void {
+  if (handlers.has(method)) {
+    throw new Error(`RPC handler already registered: ${method}`);
+  }
   handlers.set(method, handler);
 }
 
-export function createRpcExports(): Record<string, RpcHandler> {
-  const exports: Record<string, RpcHandler> = {};
-  for (const [method, handler] of handlers) {
-    exports[method] = handler;
-  }
-  return exports;
+export function createRpcExports(): Record<string, (...args: unknown[]) => unknown> {
+  // 각 핸들러를 try-catch + JSON 직렬화로 래핑
+  // 응답 형식: { success: true, data } | { success: false, error }
+  // 비동기 핸들러 자동 지원
 }
 ```
 
 ```typescript
-// index.ts
-import { registerHandler, createRpcExports } from "./rpc/router";
-import { processModule } from "./modules/process";
-import { memoryModule } from "./modules/memory";
-import { javaModule } from "./modules/java";
-import { objcModule } from "./modules/objc";
-import { nativeModule } from "./modules/native";
+// index.ts — Side-effect import 패턴
+import "./bridges";                    // 런타임 브릿지 초기화
+import { createRpcExports } from "./rpc/router";
 
-// 모듈 등록
-processModule.register(registerHandler);
-memoryModule.register(registerHandler);
-javaModule.register(registerHandler);
-objcModule.register(registerHandler);
-nativeModule.register(registerHandler);
+// 16개 모듈 — import만으로 registerHandler() 호출됨
+import "./modules/process";
+import "./modules/module";
+import "./modules/thread";
+import "./modules/memory";
+import "./modules/java";
+import "./modules/objc";
+import "./modules/native";
+import "./modules/swift";
+import "./modules/il2cpp";
+import "./modules/stalker";
+import "./modules/network";
+import "./modules/filesystem";
+import "./modules/console";
+import "./modules/monitor";
+import "./modules/resolver";
+import "./modules/antidetect";
 
-// RPC 노출
-rpc.exports = {
-  ...createRpcExports(),
-  ping: () => true,
-  getStatus: () => ({
-    arch: Process.arch,
-    platform: Process.platform,
-    pid: Process.id,
-    mainModule: Process.mainModule.name,
-  }),
-};
+// RPC 노출 — 등록된 ~102개 핸들러가 자동으로 포함
+rpc.exports = createRpcExports();
 ```
 
 ### 4.4 JS ↔ RustModule 경계
 
+> **현재 상태**: Agent 모듈은 100% JavaScript/TypeScript로 구현됨.
+> RustModule은 Phase 5에서 핫 콜백(Interceptor onEnter/onLeave, Stalker transform)을
+> 마이그레이션할 때 도입 예정.
+
 ```typescript
-// modules/memory.ts (예시)
+// 현재 구현 패턴 — modules/memory.ts (실제 코드 예시)
 
-// RustModule 로드 (메모리 스캐너)
-const scannerRust = new RustModule(`
-    use std::os::raw::{c_void, c_int, c_uint};
+import { registerHandler } from "../rpc/router";
+import { emitEvent } from "../rpc/protocol";
 
-    extern "C" {
-        fn notify_match(address: u64, size: u32);
-    }
-
-    #[no_mangle]
-    pub extern "C" fn fast_scan(
-        base: *const c_void,
-        size: usize,
-        pattern: *const u8,
-        pattern_len: usize,
-    ) -> c_int {
-        // 고속 패턴 매칭 구현
-        // 매치 발견 시 notify_match 호출
-        0
-    }
-`, {
-    notify_match: new NativeCallback((address: NativePointer, size: number) => {
-        send({ type: "scan:match", address: address.toString(), size });
-    }, 'void', ['uint64', 'uint32']),
+// 각 핸들러를 registerHandler()로 직접 등록 (side-effect)
+registerHandler("readMemory", (params: { address: string; size: number }) => {
+  const p = ptr(params.address);
+  const bytes = p.readByteArray(params.size);    // v17 인스턴스 메서드
+  return { address: params.address, size: params.size, data: bytes };
 });
 
-const fastScan = new NativeFunction(scannerRust.fast_scan, 'int', ['pointer', 'size_t', 'pointer', 'size_t']);
+registerHandler("patchMemory", (params: { address: string; bytes: string }) => {
+  const target = ptr(params.address);
+  const patch = hexToBytes(params.bytes);
+  // Memory.patchCode: 임시 writable 매핑 + cache flush 자동 처리
+  Memory.patchCode(target, patch.length, (code) => {
+    code.writeByteArray(patch);
+  });
+  return { patched: true, address: params.address, size: patch.length };
+});
 
-// JS 래퍼 (RPC로 노출)
-export const memoryModule = {
-  register(reg: RegisterFn) {
-    reg("scanMemory", (params: { pattern: string; base?: string; size?: number }) => {
-      // 작은 범위는 JS Memory.scan 사용
-      // 큰 범위는 RustModule fast_scan 사용
-      if ((params.size ?? 0) > 1024 * 1024) {
-        return useRustScanner(params);
-      }
-      return useJsScanner(params);
-    });
-
-    reg("readMemory", (params: { address: string; size: number }) => {
-      const ptr = ptr(params.address);
-      return ptr.readByteArray(params.size);
-    });
-
-    reg("writeMemory", (params: { address: string; data: number[] }) => {
-      const p = ptr(params.address);
-      p.writeByteArray(new Uint8Array(params.data).buffer as ArrayBuffer);
-    });
-  },
-};
+registerHandler("scanMemory", (params) => {
+  // Frida 내장 Memory.scanSync() 사용 (JS 레벨)
+  // Phase 5에서 대용량(>1MB) 스캔은 RustModule로 마이그레이션 예정
+  const results = Memory.scanSync(base, size, params.pattern);
+  return results;
+});
 ```
+
+**Phase 5 마이그레이션 계획:**
+
+| 현재 (JS) | Phase 5 (RustModule) | 예상 개선 |
+|-----------|---------------------|----------|
+| Interceptor 콜백 (~1000ns) | RustModule 콜백 (~100ns) | 10x |
+| Memory.scanSync (JS) | fast_scan (Rust) | 5-10x |
+| Stalker callout (JS) | Stalker callout (Rust) | 10x |
 
 ### 4.5 이벤트 프로토콜
 
 Agent → Host 방향의 이벤트는 `send()`를 통해 구조화된 메시지로 전달한다.
+`rpc/protocol.ts`에 이벤트 타입별 전용 이미터 함수가 정의되어 있다.
+
+**기본 프로토콜:**
 
 ```typescript
 // rpc/protocol.ts
-
 interface AgentEvent {
-  type: string;          // "log" | "hook:enter" | "hook:leave" | "scan:match" | ...
-  timestamp: number;
+  type: string;
+  timestamp: number;     // Date.now()
   data: unknown;
 }
 
-export function emit(type: string, data: unknown) {
-  send({
-    type,
-    timestamp: Date.now(),
-    data,
-  } satisfies AgentEvent);
+function emitEvent(type: string, data: unknown): void {
+  send({ type, timestamp: Date.now(), data });
+}
+```
+
+**전용 이미터 함수:**
+
+| 함수 | 이벤트 타입 | 소스 모듈 | 설명 |
+|------|-----------|----------|------|
+| `emitLog(level, message, data?)` | `console/message` | console, antidetect | 로그 메시지 (level, source, content) |
+| `emitHookEvent(hookId, type, details)` | `hook/event` | java, objc, native, swift, il2cpp | 후킹 트리거 (args, retval, backtrace) |
+| `emitStalkerEvent(events)` | `stalker/event` | stalker | Stalker 추적 이벤트 배치 |
+| `emitNetworkRequest(request)` | `network/request` | network | HTTP/HTTPS 요청 캡처 |
+| `emitMemoryAccess(access)` | `memory/access` | monitor | 메모리 접근 감시 이벤트 |
+| `emitEvent(type, data)` | 범용 | memory (scan) | 범용 이벤트 (scan/progress, scan/result) |
+
+**Observer 이벤트 (직접 send()):**
+
+| 이벤트 | 소스 모듈 | 설명 |
+|--------|----------|------|
+| `carf://thread/added` | thread | 스레드 생성 |
+| `carf://thread/removed` | thread | 스레드 종료 |
+| `carf://thread/renamed` | thread | 스레드 이름 변경 |
+| `carf://module/loaded` | module | 모듈 로드 |
+| `carf://module/unloaded` | module | 모듈 언로드 |
+
+### 4.6 Runtime Bridge 추상화
+
+Frida v17에서 Java, ObjC, Swift 런타임이 전역 변수에서 제거되어 별도 패키지로 분리되었다.
+`bridges.ts`에서 이를 추상화한다.
+
+```typescript
+// bridges.ts
+import JavaBridge from "frida-java-bridge";
+import ObjCBridge from "frida-objc-bridge";
+
+// globalThis에 있으면 사용, 없으면 패키지에서 import
+export const JavaRuntime = globalScope.Java ?? JavaBridge;
+export const ObjCRuntime = globalScope.ObjC ?? ObjCBridge;
+
+// Swift는 플랫폼에 따라 사용 불가할 수 있음 (try-catch)
+export const SwiftRuntime: SwiftBridgeApi | null = loadSwiftBridge();
+```
+
+**Swift Bridge 인터페이스:**
+
+```typescript
+interface SwiftBridgeApi {
+  available: boolean;
+  api: Record<string, unknown>;
+  modules: { enumerate(): SwiftModule[] };
+  demangle(symbol: string): string;
+  enumerateTypesSync(module: string): SwiftTypeDescriptor[];
+}
+```
+
+### 4.7 Frida API 호환성 레이어
+
+`runtime/frida-compat.ts`는 Frida v17에서 제거된 정적 메서드에 대한 래퍼를 제공한다.
+
+```typescript
+// runtime/frida-compat.ts
+
+// Module.findExportByName(mod, sym) 대체
+export function findExportByName(moduleName: string | null, symbolName: string): NativePointer | null {
+  if (moduleName) {
+    const mod = Process.findModuleByName(moduleName);
+    return mod ? mod.findExportByName(symbolName) : null;
+  }
+  return Module.findGlobalExportByName(symbolName);
 }
 
-// 사용 예시
-emit("hook:enter", {
-  target: "open",
-  args: [path, flags],
-  threadId: Process.getCurrentThreadId(),
-  backtrace: Thread.backtrace(this.context, Backtracer.ACCURATE).map(DebugSymbol.fromAddress),
-});
+// Memory.readByteArray(addr, len) 대체
+export function readByteArray(address: NativePointerValue, length: number): ArrayBuffer | null {
+  return ptr(address).readByteArray(length);
+}
+
+// Memory.writeByteArray(addr, val) 대체
+export function writeByteArray(address: NativePointerValue, value: ArrayBuffer | Uint8Array | number[]): void {
+  ptr(address).writeByteArray(value);
+}
 ```
 
 ---
@@ -1166,7 +1277,33 @@ plugins/
 - 후킹 스크립트 공유 (커뮤니티 저장소)
 - 분석 리포트 생성 (HTML/PDF)
 
+### 10.4 Swift/IL2CPP 분석 UI
+
+Agent에 Swift(8 핸들러)와 IL2CPP(11 핸들러)가 이미 구현되어 있다.
+전용 UI 탭 또는 기존 탭(Java/ObjC와 유사한 패턴) 확장이 필요하다.
+
+- **Swift 탭**: 모듈 열거, 타입(class/struct/enum/protocol) 트리, Demangle, 후킹
+- **IL2CPP 탭**: 도메인/어셈블리 탐색, 클래스/메서드/필드 열거, 메타데이터 덤프, 후킹
+
+### 10.5 Anti-Detection 대시보드
+
+Agent에 7개 AntiDetect 핸들러가 구현되어 있다.
+통합 대시보드 UI가 필요하다.
+
+- **Cloak 관리**: 은닉된 스레드/메모리 범위 목록, 추가/제거 UI
+- **SSL Pinning Bypass**: 원클릭 활성화, 후킹된 함수 목록 표시
+- **Root/Jailbreak Detection Bypass**: 원클릭 활성화, 우회 상태 모니터링
+
+### 10.6 Symbol Resolver 패널
+
+Agent에 5개 Resolver 핸들러가 구현되어 있다.
+Inspector Panel 또는 Command Palette에 통합한다.
+
+- **ApiResolver**: 패턴 기반 심볼 검색 (`exports:*!open*`, `-[UIView *init*]`)
+- **DebugSymbol**: 주소 → 심볼 해석 (DWARF 포함)
+- **Global Export 검색**: 모듈 전체에서 export 검색
+
 ---
 
-*Last updated: 2026-03-10*
-*Version: 2.0.0-alpha*
+*Last updated: 2026-03-11*
+*Version: 2.1.0-alpha*

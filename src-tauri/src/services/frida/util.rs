@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::CStr;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -49,6 +50,7 @@ pub(super) fn get_device_arch(device: &FridaDevice<'static>) -> Result<Option<St
 
 pub(super) fn resolve_attach_target(
     device: &FridaDevice<'static>,
+    raw_device: *mut frida_sys::FridaDevice,
     target: &Value,
 ) -> Result<(u32, String, Option<String>), AppError> {
     let processes = device.enumerate_processes();
@@ -64,7 +66,7 @@ pub(super) fn resolve_attach_target(
 
     if let Some(target) = target.as_str() {
         if let Ok(pid) = target.parse::<u32>() {
-            return resolve_attach_target(device, &Value::from(pid));
+            return resolve_attach_target(device, raw_device, &Value::from(pid));
         }
 
         if let Some(process) = processes
@@ -72,6 +74,12 @@ pub(super) fn resolve_attach_target(
             .find(|process| process.get_name() == target)
         {
             return Ok((process.get_pid(), process.get_name().to_string(), None));
+        }
+
+        if let Some(result) =
+            resolve_running_application_target(raw_device, processes.as_slice(), target)?
+        {
+            return Ok(result);
         }
 
         return Err(AppError::ProcessNotFound(format!(
@@ -82,6 +90,80 @@ pub(super) fn resolve_attach_target(
     Err(AppError::ProcessNotFound(
         "Unsupported attach target".to_string(),
     ))
+}
+
+fn resolve_running_application_target(
+    raw_device: *mut frida_sys::FridaDevice,
+    processes: &[frida::Process<'_>],
+    target: &str,
+) -> Result<Option<(u32, String, Option<String>)>, AppError> {
+    let mut error = std::ptr::null_mut();
+    let applications = unsafe {
+        frida_sys::frida_device_enumerate_applications_sync(
+            raw_device,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut error,
+        )
+    };
+
+    if !error.is_null() {
+        return Err(AppError::Internal(take_gerror_message(error)));
+    }
+
+    let count = unsafe { frida_sys::frida_application_list_size(applications) };
+    let mut resolved = None;
+
+    for index in 0..count {
+        let application = unsafe { frida_sys::frida_application_list_get(applications, index) };
+        let identifier =
+            unsafe { CStr::from_ptr(frida_sys::frida_application_get_identifier(application)) }
+                .to_string_lossy()
+                .into_owned();
+        let name = unsafe { CStr::from_ptr(frida_sys::frida_application_get_name(application)) }
+            .to_string_lossy()
+            .into_owned();
+
+        if identifier != target && name != target {
+            continue;
+        }
+
+        let pid = unsafe { frida_sys::frida_application_get_pid(application) };
+        if pid == 0 {
+            continue;
+        }
+
+        let process_name = processes
+            .iter()
+            .find(|process| process.get_pid() == pid)
+            .map(|process| process.get_name().to_string())
+            .unwrap_or(name);
+
+        resolved = Some((pid, process_name, Some(identifier)));
+        break;
+    }
+
+    unsafe {
+        frida_sys::frida_unref(applications.cast());
+    }
+
+    Ok(resolved)
+}
+
+fn take_gerror_message(error: *mut frida_sys::GError) -> String {
+    if error.is_null() {
+        return "unknown Frida error".to_string();
+    }
+
+    let message = unsafe { CStr::from_ptr((*error).message) }
+        .to_string_lossy()
+        .into_owned();
+
+    unsafe {
+        frida_sys::g_error_free(error);
+    }
+
+    message
 }
 
 pub(super) fn parse_script_runtime(runtime: Option<&str>) -> ScriptRuntime {

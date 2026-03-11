@@ -563,7 +563,7 @@ impl FridaActor {
     fn attach(&mut self, device_id: &str, options: AttachOptions) -> Result<SessionInfo, AppError> {
         let device = self.get_device(device_id)?;
         let (pid, process_name, identifier) =
-            resolve_attach_target(device.as_ref(), &options.target)?;
+            resolve_attach_target(device.as_ref(), frida_device_ptr(device.as_ref()), &options.target)?;
         let session_options = SessionOptionsHandle::from_attach_options(&options)?;
         let mut error = std::ptr::null_mut();
         let raw_session = unsafe {

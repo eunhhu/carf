@@ -6,12 +6,15 @@ import {
 	Cpu,
 	FileCode2,
 	FolderOpen,
+	Gamepad2,
 	GitFork,
 	Globe,
 	MemoryStick,
 	Package,
 	Pin,
+	ShieldOff,
 	Terminal,
+	Wind,
 } from "lucide-solid";
 import { type Component, For } from "solid-js";
 import { cn } from "~/lib/cn";
@@ -38,6 +41,9 @@ const NAV_ITEMS: NavItem[] = [
 	{ id: "callgraph", label: "Call Graph", icon: GitFork },
 	{ id: "network", label: "Network", icon: Globe },
 	{ id: "files", label: "Files", icon: FolderOpen },
+	{ id: "swift", label: "Swift", icon: Wind },
+	{ id: "il2cpp", label: "IL2CPP", icon: Gamepad2 },
+	{ id: "antidetect", label: "AntiDetect", icon: ShieldOff },
 ];
 
 interface SessionNavBarProps {

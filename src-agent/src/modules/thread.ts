@@ -1,5 +1,11 @@
 import { registerHandler } from "../rpc/router";
 
+interface SerializedThreadContext {
+  pc: string;
+  sp: string;
+  regs: Record<string, string>;
+}
+
 registerHandler("enumerateThreads", (_params: unknown) => {
   return Process.enumerateThreads().map((thread) => ({
     id: thread.id,
@@ -8,28 +14,113 @@ registerHandler("enumerateThreads", (_params: unknown) => {
   }));
 });
 
+function getThread(threadId: number) {
+  const target = Process.enumerateThreads().find((thread) => thread.id === threadId);
+  if (!target) {
+    throw new Error(`Thread not found: ${threadId}`);
+  }
+
+  return target;
+}
+
+function stringifyRegisterValue(value: unknown): string {
+  if (typeof value === "number") {
+    return `0x${value.toString(16)}`;
+  }
+
+  if (typeof value === "bigint") {
+    return `0x${value.toString(16)}`;
+  }
+
+  if (value === null || value === undefined) {
+    return "0x0";
+  }
+
+  return String(value);
+}
+
+function readRegister(
+  regs: Record<string, unknown>,
+  names: string[],
+): string | null {
+  for (const name of names) {
+    if (name in regs) {
+      return stringifyRegisterValue(regs[name]);
+    }
+  }
+
+  return null;
+}
+
+function serializeThreadContext(context: CpuContext): SerializedThreadContext {
+  const regs = context as unknown as Record<string, unknown>;
+  const pc = readRegister(regs, ["pc", "rip", "eip"]) ?? "0x0";
+  const sp = readRegister(regs, ["sp", "rsp", "esp"]) ?? "0x0";
+  const serializedRegs: Record<string, string> = {};
+
+  for (const [name, value] of Object.entries(regs)) {
+    if (name === "pc" || name === "rip" || name === "eip") {
+      continue;
+    }
+    if (name === "sp" || name === "rsp" || name === "esp") {
+      continue;
+    }
+
+    serializedRegs[name] = stringifyRegisterValue(value);
+  }
+
+  return { pc, sp, regs: serializedRegs };
+}
+
+function serializeBacktraceFrame(addr: NativePointerValue) {
+  const pointer = ptr(addr);
+  const sym = DebugSymbol.fromAddress(pointer);
+  const mod = Process.findModuleByAddress(pointer);
+
+  return {
+    address: pointer.toString(),
+    symbolName: sym.name ?? null,
+    moduleName: sym.moduleName,
+    fileName: sym.fileName,
+    lineNumber: sym.lineNumber,
+    module: mod
+      ? { name: mod.name, base: mod.base.toString(), path: mod.path }
+      : null,
+  };
+}
+
+function fallbackBacktrace(context: SerializedThreadContext) {
+  return context.pc === "0x0" ? [] : [serializeBacktraceFrame(context.pc)];
+}
+
+function collectBacktrace(threadId: number) {
+  const target = getThread(threadId);
+  const context = serializeThreadContext(target.context);
+
+  if (target.state !== "running") {
+    return fallbackBacktrace(context);
+  }
+
+  try {
+    const frames = Thread.backtrace(target.context, Backtracer.FUZZY);
+    if (frames.length === 0) {
+      return fallbackBacktrace(context);
+    }
+
+    return frames.map((addr) => serializeBacktraceFrame(addr));
+  } catch {
+    return fallbackBacktrace(context);
+  }
+}
+
 registerHandler("getBacktrace", (params: unknown) => {
   const { threadId } = params as { threadId: number };
+  return collectBacktrace(threadId);
+});
 
-  const threads = Process.enumerateThreads();
-  const target = threads.find((t) => t.id === threadId);
-  if (!target) throw new Error(`Thread not found: ${threadId}`);
-
-  const frames = Thread.backtrace(target.context, Backtracer.ACCURATE);
-  return frames.map((addr) => {
-    const sym = DebugSymbol.fromAddress(addr);
-    const mod = Process.findModuleByAddress(addr);
-    return {
-      address: addr.toString(),
-      symbolName: sym.name ?? null,
-      moduleName: sym.moduleName,
-      fileName: sym.fileName,
-      lineNumber: sym.lineNumber,
-      module: mod
-        ? { name: mod.name, base: mod.base.toString(), path: mod.path }
-        : null,
-    };
-  });
+registerHandler("getThreadContext", (params: unknown) => {
+  const { threadId } = params as { threadId: number };
+  return serializeThreadContext(getThread(threadId).context);
 });
 
 // --- Thread Observer (Frida 17+) ---
@@ -86,26 +177,8 @@ registerHandler("stopThreadObserver", (_params: unknown) => {
 registerHandler("getThreadBacktrace", (params: unknown) => {
   const { threadId } = params as { threadId: number };
 
-  const threads = Process.enumerateThreads();
-  const target = threads.find((t) => t.id === threadId);
-  if (!target) throw new Error(`Thread not found: ${threadId}`);
-
   try {
-    const frames = Thread.backtrace(target.context, Backtracer.ACCURATE);
-    return frames.map((addr) => {
-      const sym = DebugSymbol.fromAddress(addr);
-      const mod = Process.findModuleByAddress(addr);
-      return {
-        address: addr.toString(),
-        symbolName: sym.name ?? null,
-        moduleName: sym.moduleName,
-        fileName: sym.fileName,
-        lineNumber: sym.lineNumber,
-        module: mod
-          ? { name: mod.name, base: mod.base.toString(), path: mod.path }
-          : null,
-      };
-    });
+    return collectBacktrace(threadId);
   } catch (e) {
     throw new Error(
       `Failed to get backtrace for thread ${threadId}: ${e instanceof Error ? e.message : String(e)}`

@@ -375,14 +375,15 @@ export default function ProcessPanel() {
       </div>
 
       {/* Attach/Spawn options modal */}
-      <AttachModal
-        open={modalOpen()}
-        canAttach={selectionHasPid()}
-        canSpawn={selectionHasIdentifier()}
-        targetLabel={modalTargetLabel()}
-        onConfirm={handleModalConfirm}
-        onCancel={handleModalCancel}
-      />
+      <Show when={modalOpen()}>
+        <AttachModal
+          canAttach={selectionHasPid()}
+          canSpawn={selectionHasIdentifier()}
+          targetLabel={modalTargetLabel()}
+          onConfirm={handleModalConfirm}
+          onCancel={handleModalCancel}
+        />
+      </Show>
     </div>
   );
 }
