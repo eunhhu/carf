@@ -115,6 +115,30 @@ const BACKTRACES: Record<number, BacktraceFrame[]> = {
 	1559: [],
 };
 
+const THREAD_CONTEXTS: Record<
+	number,
+	{ pc: string; sp: string; regs: Record<string, string> }
+> = {
+	1337: {
+		pc: "0x7100011200",
+		sp: "0x7ffeedcc00",
+		regs: {
+			x0: "0x1",
+			x1: "0x7100004190",
+			x2: "0x7ffeedcc20",
+		},
+	},
+	1448: {
+		pc: "0x7100012400",
+		sp: "0x7ffeedbb80",
+		regs: {
+			x0: "0x0",
+			x1: "0x7100012480",
+			x2: "0x7ffeedbba0",
+		},
+	},
+};
+
 const MEMORY_RANGES: MemoryRange[] = [
 	{
 		base: "0x7100000000",
@@ -928,6 +952,16 @@ async function handleMockRpc<T>(
 		case "getBacktrace": {
 			const threadId = Number(params.threadId ?? 1337);
 			return clone(BACKTRACES[threadId] ?? []) as T;
+		}
+		case "getThreadContext": {
+			const threadId = Number(params.threadId ?? 1337);
+			return clone(
+				THREAD_CONTEXTS[threadId] ?? {
+					pc: "0x0",
+					sp: "0x0",
+					regs: {},
+				},
+			) as T;
 		}
 		case "enumerateRanges":
 			return clone(MEMORY_RANGES) as T;

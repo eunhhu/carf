@@ -1,4 +1,4 @@
-import { For, Show, Switch, Match, createEffect, createSignal, onMount } from "solid-js";
+import { For, Show, Switch, Match, createEffect, createMemo, createSignal, onMount } from "solid-js";
 import {
   memoryState,
   memorySubMode,
@@ -6,7 +6,8 @@ import {
   fetchRanges,
   readMemoryAt,
   searchMemory,
-  setMonitorActive,
+  startMemoryMonitor,
+  stopMemoryMonitor,
 } from "./memory.store";
 import type { MemorySubMode } from "./memory.store";
 import { cn } from "~/lib/cn";
@@ -400,11 +401,28 @@ function MonitorView() {
   function handleStartMonitor() {
     const session = activeSession();
     if (!session || !monitorAddress()) return;
-    setMonitorActive(true);
+    void startMemoryMonitor(session.id, monitorAddress(), Number(monitorSize()));
   }
 
   function handleStopMonitor() {
-    setMonitorActive(false);
+    const session = activeSession();
+    if (!session) return;
+    void stopMemoryMonitor(session.id);
+  }
+
+  const maxHeat = createMemo(() => {
+    const max = Math.max(...memoryState.monitorHeatmap);
+    return max > 0 ? max : 1;
+  });
+
+  function heatColor(count: number): string {
+    const intensity = count / maxHeat();
+    if (intensity > 0.8) return "bg-red-500/80";
+    if (intensity > 0.6) return "bg-orange-500/60";
+    if (intensity > 0.4) return "bg-yellow-500/40";
+    if (intensity > 0.2) return "bg-cyan-500/30";
+    if (intensity > 0) return "bg-blue-700/40";
+    return "bg-blue-900/20";
   }
 
   return (
@@ -464,11 +482,11 @@ function MonitorView() {
             </div>
           }
         >
-          {/* Heatmap grid — placeholder cells showing access pattern */}
           <div class="mb-3 flex items-center gap-4 text-[10px] text-muted-foreground">
             <span class="text-success">Monitoring active</span>
             <span>Base: {monitorAddress()}</span>
             <span>Size: {monitorSize()} bytes</span>
+            <span>{memoryState.monitorEvents.length} events</span>
           </div>
           <div class="flex items-center gap-1 text-[10px] text-muted-foreground">
             <span>Cold</span>
@@ -483,26 +501,13 @@ function MonitorView() {
             <span>Hot</span>
           </div>
           <div class="mt-3 grid grid-cols-16 gap-px">
-            <For each={Array.from({ length: 256 }, (_, i) => i)}>
-              {(i) => {
-                const intensity = Math.sin(i * 0.1) * 0.5 + 0.5;
-                const bgClass =
-                  intensity > 0.8
-                    ? "bg-red-500/80"
-                    : intensity > 0.6
-                      ? "bg-orange-500/60"
-                      : intensity > 0.4
-                        ? "bg-yellow-500/40"
-                        : intensity > 0.2
-                          ? "bg-cyan-500/30"
-                          : "bg-blue-900/20";
-                return (
-                  <div
-                    class={cn("h-4 w-4 rounded-sm", bgClass)}
-                    title={`Page ${i}: ${(intensity * 100).toFixed(0)}% activity`}
-                  />
-                );
-              }}
+            <For each={memoryState.monitorHeatmap}>
+              {(count, i) => (
+                <div
+                  class={cn("h-4 w-4 rounded-sm", heatColor(count))}
+                  title={`Page ${i()}: ${count} accesses`}
+                />
+              )}
             </For>
           </div>
           <p class="mt-2 text-[10px] text-muted-foreground">

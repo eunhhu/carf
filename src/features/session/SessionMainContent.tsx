@@ -23,6 +23,9 @@ const loadPinboardTab = () => import("~/features/pinboard/PinboardTab");
 const loadCallGraphTab = () => import("~/features/callgraph/CallGraphTab");
 const loadNetworkTab = () => import("~/features/network/NetworkTab");
 const loadFilesTab = () => import("~/features/filesystem/FilesTab");
+const loadSwiftTab = () => import("~/features/swift/SwiftTab");
+const loadIl2cppTab = () => import("~/features/il2cpp/Il2cppTab");
+const loadAntiDetectTab = () => import("~/features/antidetect/AntiDetectTab");
 
 const TAB_LOADERS: Record<TabId, () => Promise<unknown>> = {
 	console: loadConsoleTab,
@@ -38,6 +41,9 @@ const TAB_LOADERS: Record<TabId, () => Promise<unknown>> = {
 	callgraph: loadCallGraphTab,
 	network: loadNetworkTab,
 	files: loadFilesTab,
+	swift: loadSwiftTab,
+	il2cpp: loadIl2cppTab,
+	antidetect: loadAntiDetectTab,
 };
 
 const TAB_PRELOADS: Partial<Record<TabId, TabId[]>> = {
@@ -54,6 +60,9 @@ const TAB_PRELOADS: Partial<Record<TabId, TabId[]>> = {
 	callgraph: ["native", "threads"],
 	network: ["files", "console"],
 	files: ["network", "modules"],
+	swift: ["hooks", "native"],
+	il2cpp: ["hooks", "native"],
+	antidetect: ["threads", "memory"],
 };
 
 // Lazy-load tab components for performance
@@ -70,6 +79,9 @@ const PinboardTab = lazy(loadPinboardTab);
 const CallGraphTab = lazy(loadCallGraphTab);
 const NetworkTab = lazy(loadNetworkTab);
 const FilesTab = lazy(loadFilesTab);
+const SwiftTab = lazy(loadSwiftTab);
+const Il2cppTab = lazy(loadIl2cppTab);
+const AntiDetectTab = lazy(loadAntiDetectTab);
 
 interface SessionMainContentProps {
 	activeTab: TabId;
@@ -139,6 +151,15 @@ export function SessionMainContent(props: SessionMainContentProps) {
 					</Match>
 					<Match when={props.activeTab === "files"}>
 						<FilesTab />
+					</Match>
+					<Match when={props.activeTab === "swift"}>
+						<SwiftTab />
+					</Match>
+					<Match when={props.activeTab === "il2cpp"}>
+						<Il2cppTab />
+					</Match>
+					<Match when={props.activeTab === "antidetect"}>
+						<AntiDetectTab />
 					</Match>
 				</Switch>
 			</Suspense>

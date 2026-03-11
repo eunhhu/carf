@@ -91,7 +91,7 @@ fn setup_event_forwarder(app: &tauri::App) {
 ///
 /// TODO: Replace the polling stub with real frida-rust DeviceManager signal
 /// subscriptions once the frida-rust integration is in place:
-/// ```rust
+/// ```text
 /// device_manager.connect_signal::<frida::DeviceAddedHandler>(...);
 /// device_manager.connect_signal::<frida::DeviceRemovedHandler>(...);
 /// ```

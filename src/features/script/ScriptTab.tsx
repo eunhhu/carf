@@ -133,9 +133,37 @@ function ScriptTab() {
 	);
 }
 
+function highlightCode(code: string): string {
+	if (!code) return "";
+	return code
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		// comments (single-line)
+		.replace(/(\/\/.*)/g, '<span class="text-muted-foreground italic">$1</span>')
+		// strings (double-quoted and single-quoted)
+		.replace(/("(?:[^"\\]|\\.)*")/g, '<span class="text-success">$1</span>')
+		.replace(/('(?:[^'\\]|\\.)*')/g, '<span class="text-success">$1</span>')
+		// template literals
+		.replace(/(`(?:[^`\\]|\\.)*`)/g, '<span class="text-success">$1</span>')
+		// numbers
+		.replace(/\b(0x[\da-fA-F]+|\d+(?:\.\d+)?)\b/g, '<span class="text-warning">$1</span>')
+		// keywords
+		.replace(
+			/\b(const|let|var|function|return|if|else|for|while|try|catch|finally|throw|new|import|export|from|class|extends|async|await|void|typeof|instanceof|in|of|break|continue|switch|case|default)\b/g,
+			'<span class="text-purple-400 font-medium">$1</span>',
+		)
+		// built-in objects/types
+		.replace(
+			/\b(console|Java|ObjC|Interceptor|Module|Process|Thread|Memory|NativeFunction|NativeCallback|Stalker|Frida|ptr|NULL|rpc|send|recv|true|false|null|undefined)\b/g,
+			'<span class="text-primary">$1</span>',
+		);
+}
+
 function ScriptEditor() {
 	let textareaRef: HTMLTextAreaElement | undefined;
 	let lineNumbersRef: HTMLDivElement | undefined;
+	let highlightRef: HTMLPreElement | undefined;
 
 	const lineCount = createMemo(() => {
 		const code = scriptState.code;
@@ -143,9 +171,15 @@ function ScriptEditor() {
 		return code.split("\n").length;
 	});
 
+	const highlighted = createMemo(() => highlightCode(scriptState.code));
+
 	function handleScroll() {
 		if (textareaRef && lineNumbersRef) {
 			lineNumbersRef.scrollTop = textareaRef.scrollTop;
+		}
+		if (textareaRef && highlightRef) {
+			highlightRef.scrollTop = textareaRef.scrollTop;
+			highlightRef.scrollLeft = textareaRef.scrollLeft;
 		}
 	}
 
@@ -162,17 +196,26 @@ function ScriptEditor() {
 					)}
 				</For>
 			</div>
-			{/* Code textarea */}
-			<textarea
-				ref={textareaRef}
-				class="flex-1 resize-none bg-background py-2 pl-3 pr-4 font-mono text-xs leading-[18px] text-foreground outline-none"
-				placeholder="// Write Frida script here or select a template..."
-				value={scriptState.code}
-				onInput={(e) => setCode(e.currentTarget.value)}
-				onScroll={handleScroll}
-				spellcheck={false}
-				style={{ "tab-size": "2" }}
-			/>
+			{/* Editor container with overlay */}
+			<div class="relative flex-1 overflow-hidden">
+				{/* Highlighted code layer (behind) */}
+				<pre
+					ref={highlightRef}
+					class="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words py-2 pl-3 pr-4 font-mono text-xs leading-[18px]"
+					aria-hidden="true"
+					innerHTML={highlighted() || '<span class="text-muted-foreground">// Write Frida script here or select a template...</span>'}
+				/>
+				{/* Transparent textarea (front) */}
+				<textarea
+					ref={textareaRef}
+					class="relative flex-1 w-full h-full resize-none bg-transparent py-2 pl-3 pr-4 font-mono text-xs leading-[18px] text-transparent caret-foreground outline-none"
+					value={scriptState.code}
+					onInput={(e) => setCode(e.currentTarget.value)}
+					onScroll={handleScroll}
+					spellcheck={false}
+					style={{ "tab-size": "2" }}
+				/>
+			</div>
 		</div>
 	);
 }
