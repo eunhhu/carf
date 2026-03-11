@@ -1,4 +1,4 @@
-import { createDeferred, createMemo, createSignal } from "solid-js";
+import { createDeferred, createMemo, createRoot, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { addHook } from "~/features/hooks/hooks.store";
 import { scheduleTransition } from "~/lib/scheduling";
@@ -35,19 +35,25 @@ const [state, setState] = createStore<ObjCState>({
 });
 
 const [searchQuery, setSearchQuery] = createSignal("");
-const deferredSearchQuery = createDeferred(searchQuery);
 const [subTab, setSubTab] = createSignal<ObjCSubTab>("methods");
 
-const filteredClasses = createMemo(() => {
-	let classes = state.classes;
-	if (state.appClassesOnly) {
-		classes = classes.filter(
-			(c) => !c.startsWith("NS") && !c.startsWith("UI") && !c.startsWith("_"),
-		);
-	}
-	const query = deferredSearchQuery().trim().toLowerCase();
-	if (!query) return classes;
-	return classes.filter((c) => c.toLowerCase().includes(query));
+const { filteredClasses } = createRoot(() => {
+	const deferredSearchQuery = createDeferred(searchQuery);
+
+	return {
+		filteredClasses: createMemo(() => {
+			let classes = state.classes;
+			if (state.appClassesOnly) {
+				classes = classes.filter(
+					(c) =>
+						!c.startsWith("NS") && !c.startsWith("UI") && !c.startsWith("_"),
+				);
+			}
+			const query = deferredSearchQuery().trim().toLowerCase();
+			if (!query) return classes;
+			return classes.filter((c) => c.toLowerCase().includes(query));
+		}),
+	};
 });
 
 function setClasses(classes: string[]): void {

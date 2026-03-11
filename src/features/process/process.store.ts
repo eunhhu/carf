@@ -1,4 +1,4 @@
-import { createDeferred, createMemo } from "solid-js";
+import { createDeferred, createMemo, createRoot } from "solid-js";
 import { createStore } from "solid-js/store";
 import { addSession, setAppView } from "~/features/session/session.store";
 import { scheduleTransition } from "~/lib/scheduling";
@@ -39,27 +39,30 @@ const [state, setState] = createStore<ProcessState>({
 	showMode: "processes",
 });
 
-const deferredSearchQuery = createDeferred(() => state.searchQuery);
+const { filteredProcesses, filteredApplications } = createRoot(() => {
+	const deferredSearchQuery = createDeferred(() => state.searchQuery);
 
-const filteredProcesses = createMemo(() => {
-	const q = deferredSearchQuery().trim().toLowerCase();
-	if (!q) return state.processes;
-	return state.processes.filter(
-		(p) =>
-			p.name.toLowerCase().includes(q) ||
-			String(p.pid).includes(q) ||
-			(p.identifier?.toLowerCase().includes(q) ?? false),
-	);
-});
-
-const filteredApplications = createMemo(() => {
-	const q = deferredSearchQuery().trim().toLowerCase();
-	if (!q) return state.applications;
-	return state.applications.filter(
-		(a) =>
-			a.name.toLowerCase().includes(q) ||
-			a.identifier.toLowerCase().includes(q),
-	);
+	return {
+		filteredProcesses: createMemo(() => {
+			const q = deferredSearchQuery().trim().toLowerCase();
+			if (!q) return state.processes;
+			return state.processes.filter(
+				(p) =>
+					p.name.toLowerCase().includes(q) ||
+					String(p.pid).includes(q) ||
+					(p.identifier?.toLowerCase().includes(q) ?? false),
+			);
+		}),
+		filteredApplications: createMemo(() => {
+			const q = deferredSearchQuery().trim().toLowerCase();
+			if (!q) return state.applications;
+			return state.applications.filter(
+				(a) =>
+					a.name.toLowerCase().includes(q) ||
+					a.identifier.toLowerCase().includes(q),
+			);
+		}),
+	};
 });
 
 async function refreshProcesses(deviceId: string): Promise<void> {

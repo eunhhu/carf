@@ -1,4 +1,4 @@
-import { createDeferred, createMemo, createSignal } from "solid-js";
+import { createDeferred, createMemo, createRoot, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { recordHookEvent } from "~/features/hooks/hooks.store";
 import {
@@ -43,8 +43,6 @@ const [levelFilter, setLevelFilter] = createSignal<ConsoleLevel | "all">("all");
 const [sourceFilter, setSourceFilter] = createSignal<ConsoleSource | "all">(
 	"all",
 );
-const deferredLevelFilter = createDeferred(levelFilter);
-const deferredSourceFilter = createDeferred(sourceFilter);
 const [consolePanelTab, setConsolePanelTab] =
 	createSignal<ConsolePanelTab>("console");
 const [consolePanelOpen, setConsolePanelOpen] = createSignal(true);
@@ -135,17 +133,24 @@ function restoreConsoleState(snapshot?: {
 	setConsolePanelTab(snapshot.consolePanelTab);
 }
 
-const filteredMessages = createMemo(() => {
-	let msgs = state.messages;
-	const level = deferredLevelFilter();
-	const source = deferredSourceFilter();
-	if (level !== "all") {
-		msgs = msgs.filter((m) => m.level === level);
-	}
-	if (source !== "all") {
-		msgs = msgs.filter((m) => m.source === source);
-	}
-	return msgs;
+const { filteredMessages } = createRoot(() => {
+	const deferredLevelFilter = createDeferred(levelFilter);
+	const deferredSourceFilter = createDeferred(sourceFilter);
+
+	return {
+		filteredMessages: createMemo(() => {
+			let msgs = state.messages;
+			const level = deferredLevelFilter();
+			const source = deferredSourceFilter();
+			if (level !== "all") {
+				msgs = msgs.filter((m) => m.level === level);
+			}
+			if (source !== "all") {
+				msgs = msgs.filter((m) => m.source === source);
+			}
+			return msgs;
+		}),
+	};
 });
 
 async function evaluateCode(sessionId: string, code: string): Promise<void> {

@@ -6,7 +6,7 @@ use async_stream::stream;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::response::IntoResponse;
+use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
@@ -68,6 +68,7 @@ struct RpcCallArgs {
 pub async fn run() -> anyhow::Result<()> {
     let state = Arc::new(AppState::new());
     let app = Router::new()
+        .route("/", get(index))
         .route("/api/health", get(health))
         .route("/api/events", get(events))
         .route("/api/invoke/{command}", post(invoke))
@@ -89,6 +90,82 @@ pub async fn run() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+async fn index() -> Html<&'static str> {
+    Html(
+        r#"<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CARF Axum Bridge</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23060b13'/%3E%3Cpath d='M10 10h12v4H14v4h6v4h-6v2h-4z' fill='%239ed0ff'/%3E%3C/svg%3E" />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(circle at top, rgba(31, 133, 255, 0.18), transparent 40%),
+          linear-gradient(180deg, #0a0f19, #06080d);
+        color: #ecf3ff;
+      }
+      main {
+        width: min(720px, calc(100vw - 32px));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        background: rgba(8, 13, 22, 0.9);
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.45);
+        padding: 28px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+      }
+      p {
+        margin: 0 0 18px;
+        color: #a8b4c7;
+        line-height: 1.5;
+      }
+      ul {
+        margin: 0;
+        padding-left: 20px;
+      }
+      li + li {
+        margin-top: 10px;
+      }
+      code {
+        color: #9ed0ff;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+      }
+      a {
+        color: #9ed0ff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>CARF Axum Bridge</h1>
+      <p>
+        The bridge is running. Open the frontend with <code>bun run dev</code> and keep this
+        process alive, or call the API endpoints directly.
+      </p>
+      <ul>
+        <li><a href="/api/health"><code>GET /api/health</code></a> for a quick health check</li>
+        <li><code>GET /api/events</code> for the SSE event stream</li>
+        <li><code>POST /api/invoke/&lt;command&gt;</code> for backend commands</li>
+      </ul>
+    </main>
+  </body>
+</html>"#,
+    )
 }
 
 async fn health() -> Json<Value> {

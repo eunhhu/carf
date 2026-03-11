@@ -5,14 +5,11 @@ import { unwrapRpcResult } from "~/lib/rpc";
 
 const IS_TAURI =
 	typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const ALLOW_MOCK_FALLBACK =
-	import.meta.env.VITE_CARF_ALLOW_MOCK === "true";
+const ALLOW_MOCK_FALLBACK = import.meta.env.VITE_CARF_ALLOW_MOCK === "true";
 const EXPLICIT_BRIDGE_URL = import.meta.env.VITE_CARF_BRIDGE_URL?.trim();
 const DEFAULT_BRIDGE_URL =
-	typeof window !== "undefined" &&
-	(window.location.hostname === "localhost" ||
-		window.location.hostname === "127.0.0.1")
-		? "http://127.0.0.1:7766"
+	typeof window !== "undefined" && !IS_TAURI
+		? window.location.origin
 		: undefined;
 const BRIDGE_BASE_URL = EXPLICIT_BRIDGE_URL || DEFAULT_BRIDGE_URL;
 

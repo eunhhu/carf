@@ -1,4 +1,4 @@
-import { createDeferred, createMemo, createSignal } from "solid-js";
+import { createDeferred, createMemo, createRoot, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
 	extractEventSessionId,
@@ -27,9 +27,6 @@ const [state, setState] = createStore<NetworkState>({
 const [domainFilter, setDomainFilter] = createSignal("");
 const [methodFilter, setMethodFilter] = createSignal<string | "all">("all");
 const [statusFilter, setStatusFilter] = createSignal<number | "all">("all");
-const deferredDomainFilter = createDeferred(domainFilter);
-const deferredMethodFilter = createDeferred(methodFilter);
-const deferredStatusFilter = createDeferred(statusFilter);
 
 function addRequest(request: NetworkRequest): void {
 	setState("requests", (prev) => {
@@ -205,28 +202,36 @@ function exportHar(): string {
 	return JSON.stringify(har, null, 2);
 }
 
-const filteredRequests = createMemo(() => {
-	let reqs = state.requests;
-	const domain = deferredDomainFilter().trim().toLowerCase();
-	const method = deferredMethodFilter();
-	const status = deferredStatusFilter();
+const { filteredRequests } = createRoot(() => {
+	const deferredDomainFilter = createDeferred(domainFilter);
+	const deferredMethodFilter = createDeferred(methodFilter);
+	const deferredStatusFilter = createDeferred(statusFilter);
 
-	if (domain) {
-		reqs = reqs.filter((r) => {
-			try {
-				return new URL(r.url).hostname.toLowerCase().includes(domain);
-			} catch {
-				return r.url.toLowerCase().includes(domain);
+	return {
+		filteredRequests: createMemo(() => {
+			let reqs = state.requests;
+			const domain = deferredDomainFilter().trim().toLowerCase();
+			const method = deferredMethodFilter();
+			const status = deferredStatusFilter();
+
+			if (domain) {
+				reqs = reqs.filter((r) => {
+					try {
+						return new URL(r.url).hostname.toLowerCase().includes(domain);
+					} catch {
+						return r.url.toLowerCase().includes(domain);
+					}
+				});
 			}
-		});
-	}
-	if (method !== "all") {
-		reqs = reqs.filter((r) => r.method === method);
-	}
-	if (status !== "all") {
-		reqs = reqs.filter((r) => r.statusCode === status);
-	}
-	return reqs;
+			if (method !== "all") {
+				reqs = reqs.filter((r) => r.method === method);
+			}
+			if (status !== "all") {
+				reqs = reqs.filter((r) => r.statusCode === status);
+			}
+			return reqs;
+		}),
+	};
 });
 
 const selectedRequest = () =>

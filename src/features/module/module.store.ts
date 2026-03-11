@@ -1,4 +1,4 @@
-import { createDeferred, createMemo, createSignal } from "solid-js";
+import { createDeferred, createMemo, createRoot, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { scheduleTransition } from "~/lib/scheduling";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
@@ -43,16 +43,20 @@ const [state, setState] = createStore<ModuleState>({
 const [moduleSubTab, setModuleSubTab] = createSignal<ModuleSubTab>("exports");
 
 const [searchQuery, setSearchQuery] = createSignal("");
-const deferredSearchQuery = createDeferred(searchQuery);
+const { filteredModules } = createRoot(() => {
+	const deferredSearchQuery = createDeferred(searchQuery);
 
-const filteredModules = createMemo(() => {
-	const query = deferredSearchQuery().trim().toLowerCase();
-	if (!query) return state.modules;
-	return state.modules.filter(
-		(m) =>
-			m.name.toLowerCase().includes(query) ||
-			m.path.toLowerCase().includes(query),
-	);
+	return {
+		filteredModules: createMemo(() => {
+			const query = deferredSearchQuery().trim().toLowerCase();
+			if (!query) return state.modules;
+			return state.modules.filter(
+				(m) =>
+					m.name.toLowerCase().includes(query) ||
+					m.path.toLowerCase().includes(query),
+			);
+		}),
+	};
 });
 
 function setModules(modules: ModuleInfo[]): void {

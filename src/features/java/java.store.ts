@@ -1,4 +1,4 @@
-import { createDeferred, createMemo, createSignal } from "solid-js";
+import { createDeferred, createMemo, createRoot, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { addHook } from "~/features/hooks/hooks.store";
 import { activeSession } from "~/features/session/session.store";
@@ -42,7 +42,6 @@ const [state, setState] = createStore<JavaState>({
 });
 
 const [searchQuery, setSearchQuery] = createSignal("");
-const deferredSearchQuery = createDeferred(searchQuery);
 const [subTab, setSubTab] = createSignal<JavaSubTab>("methods");
 const requestVersions = new Map<string, Record<JavaRequestKind, number>>();
 
@@ -82,10 +81,16 @@ function shouldCommitRequest(
 	);
 }
 
-const filteredClasses = createMemo(() => {
-	const query = deferredSearchQuery().trim().toLowerCase();
-	if (!query) return state.classes;
-	return state.classes.filter((c) => c.toLowerCase().includes(query));
+const { filteredClasses } = createRoot(() => {
+	const deferredSearchQuery = createDeferred(searchQuery);
+
+	return {
+		filteredClasses: createMemo(() => {
+			const query = deferredSearchQuery().trim().toLowerCase();
+			if (!query) return state.classes;
+			return state.classes.filter((c) => c.toLowerCase().includes(query));
+		}),
+	};
 });
 
 function setClasses(classes: string[]): void {

@@ -1,4 +1,4 @@
-import { createDeferred, createMemo, createSignal } from "solid-js";
+import { createDeferred, createMemo, createRoot, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { generateId } from "~/lib/format";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
@@ -19,12 +19,16 @@ const [state, setState] = createStore<PinboardState>({
 const [typeFilter, setTypeFilter] = createSignal<PinItem["type"] | "all">(
 	"all",
 );
-const deferredTypeFilter = createDeferred(typeFilter);
+const { filteredItems } = createRoot(() => {
+	const deferredTypeFilter = createDeferred(typeFilter);
 
-const filteredItems = createMemo(() => {
-	const filter = deferredTypeFilter();
-	if (filter === "all") return state.items;
-	return state.items.filter((item) => item.type === filter);
+	return {
+		filteredItems: createMemo(() => {
+			const filter = deferredTypeFilter();
+			if (filter === "all") return state.items;
+			return state.items.filter((item) => item.type === filter);
+		}),
+	};
 });
 
 function pinItem(
