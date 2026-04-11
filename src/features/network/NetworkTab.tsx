@@ -231,13 +231,15 @@ function NetworkTab() {
                         Request Headers
                       </h4>
                       <div class="space-y-0.5">
-                        {Object.entries(req().requestHeaders).map(([k, v]) => (
-                          <div class="group/header flex items-center gap-2 text-xs">
-                            <span class="shrink-0 text-primary">{k}:</span>
-                            <span class="break-all text-muted-foreground">{v}</span>
-                            <CopyButton value={String(v)} class="opacity-0 group-hover/header:opacity-100" />
-                          </div>
-                        ))}
+                        <For each={Object.entries(req().requestHeaders)}>
+                          {([k, v]) => (
+                            <div class="group/header flex items-center gap-2 text-xs">
+                              <span class="shrink-0 text-primary">{k}:</span>
+                              <span class="break-all text-muted-foreground">{v}</span>
+                              <CopyButton value={String(v)} class="opacity-0 group-hover/header:opacity-100" />
+                            </div>
+                          )}
+                        </For>
                       </div>
                     </div>
                     <Show when={req().requestBody}>
@@ -259,13 +261,15 @@ function NetworkTab() {
                         Response Headers
                       </h4>
                       <div class="space-y-0.5">
-                        {Object.entries(req().responseHeaders).map(([k, v]) => (
-                          <div class="group/header flex items-center gap-2 text-xs">
-                            <span class="shrink-0 text-primary">{k}:</span>
-                            <span class="break-all text-muted-foreground">{v}</span>
-                            <CopyButton value={String(v)} class="opacity-0 group-hover/header:opacity-100" />
-                          </div>
-                        ))}
+                        <For each={Object.entries(req().responseHeaders)}>
+                          {([k, v]) => (
+                            <div class="group/header flex items-center gap-2 text-xs">
+                              <span class="shrink-0 text-primary">{k}:</span>
+                              <span class="break-all text-muted-foreground">{v}</span>
+                              <CopyButton value={String(v)} class="opacity-0 group-hover/header:opacity-100" />
+                            </div>
+                          )}
+                        </For>
                       </div>
                     </div>
                     <Show when={req().responseBody}>

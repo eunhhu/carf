@@ -8,6 +8,7 @@ import {
 } from "~/lib/event-normalizers";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke, listen } from "~/lib/tauri";
+import { toastError } from "~/features/toast/toast.store";
 import type { HookInfo, StalkerEvent } from "~/lib/types";
 
 export type NativeSubMode = "interceptor" | "stalker" | "functions";
@@ -114,7 +115,7 @@ async function hookNativeFunction(
 		});
 		addHook(hook);
 	} catch (e) {
-		console.error("hookNativeFunction failed:", e);
+		toastError("Failed to hook native function", e);
 		throw e;
 	}
 }
@@ -130,7 +131,7 @@ async function unhookNativeFunction(
 			params: { hookId },
 		});
 	} catch (e) {
-		console.error("unhookNativeFunction failed:", e);
+		toastError("Failed to unhook native function", e);
 		throw e;
 	}
 }
@@ -169,7 +170,7 @@ async function startStalker(
 		setStalkerActive(false);
 		setStalkerThread(null);
 		setStalkerMode("stalker");
-		console.error("startStalker failed:", e);
+		toastError("Failed to start stalker", e);
 		throw e;
 	}
 }
@@ -182,7 +183,7 @@ async function stopStalker(sessionId: string, threadId: number): Promise<void> {
 			params: { threadId },
 		});
 	} catch (e) {
-		console.error("stopStalker failed:", e);
+		toastError("Failed to stop stalker", e);
 		throw e;
 	} finally {
 		setStalkerActive(false);
@@ -210,7 +211,7 @@ async function callNativeFunction(
 				: result;
 		addFunctionResult({ address, retval, timestamp: Date.now() });
 	} catch (e) {
-		console.error("callNativeFunction failed:", e);
+		toastError("Failed to call native function", e);
 		throw e;
 	}
 }

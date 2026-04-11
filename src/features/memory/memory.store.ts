@@ -4,6 +4,7 @@ import { extractEventSessionId } from "~/lib/event-normalizers";
 import type { MemoryRange, MemoryMonitorEvent, ScanResult } from "~/lib/types";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke, listen } from "~/lib/tauri";
+import { toastError } from "~/features/toast/toast.store";
 
 export type MemorySubMode = "map" | "hex" | "search" | "monitor";
 
@@ -100,11 +101,22 @@ async function startMemoryMonitor(
   setMonitorEvents([]);
   setMonitorHeatmap(DEFAULT_MONITOR_HEATMAP.slice());
 
+  // Ring-buffer the latest N events so the panel never hoards unbounded memory
+  // when a busy process generates thousands of accesses per second.
+  const MONITOR_EVENT_CAP = 1000;
+
   monitorUnlisten = listen<MemoryMonitorEvent>(
     "carf://memory/access",
     (payload) => {
       if (extractEventSessionId(payload) !== sessionId) return;
-      setMonitorEvents((prev) => [...prev, payload]);
+      setMonitorEvents((prev) => {
+        if (prev.length >= MONITOR_EVENT_CAP) {
+          // Drop the oldest events so the array never grows without bound.
+          const overflow = prev.length - MONITOR_EVENT_CAP + 1;
+          return [...prev.slice(overflow), payload];
+        }
+        return [...prev, payload];
+      });
       const idx = payload.pageIndex % 256;
       setMonitorHeatmap((prev) => {
         const next = prev.slice();
@@ -124,7 +136,7 @@ async function startMemoryMonitor(
     setState("monitorActive", false);
     monitorUnlisten?.();
     monitorUnlisten = null;
-    console.error("startMemoryMonitor error:", e);
+    toastError("Failed to start memory monitor", e);
   }
 }
 
@@ -136,7 +148,7 @@ async function stopMemoryMonitor(sessionId: string): Promise<void> {
       params: {},
     });
   } catch (e) {
-    console.error("stopMemoryMonitor error:", e);
+    toastError("Failed to stop memory monitor", e);
   } finally {
     setState("monitorActive", false);
     monitorUnlisten?.();
@@ -216,7 +228,7 @@ async function fetchRanges(sessionId: string): Promise<void> {
     setRanges(result);
   } catch (e) {
     setState({ rangesLoading: false });
-    console.error("fetchRanges error:", e);
+    toastError("Failed to fetch memory ranges", e);
   }
 }
 
@@ -238,7 +250,7 @@ async function readMemoryAt(
     setHexView(address, data);
   } catch (e) {
     setState({ hexLoading: false });
-    console.error("readMemoryAt error:", e);
+    toastError("Failed to read memory", e);
   }
 }
 
@@ -254,7 +266,7 @@ async function writeMemoryAt(
       params: { address, data },
     });
   } catch (e) {
-    console.error("writeMemoryAt error:", e);
+    toastError("Failed to write memory", e);
   }
 }
 
@@ -295,12 +307,12 @@ async function searchMemory(
     const result = await invoke<ScanResult[]>("rpc_call", {
       sessionId,
       method: "scanMemory",
-      params: { pattern, ranges: "r--" },
+      params: { pattern, protection: "r--" },
     });
     setSearchResults(result);
   } catch (e) {
     setState({ searching: false });
-    console.error("searchMemory error:", e);
+    toastError("Failed to search memory", e);
   } finally {
     unlistenProgress();
     unlistenResult();

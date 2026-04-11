@@ -287,6 +287,15 @@ pub(super) fn new_session_id() -> String {
 }
 
 fn adb_signal_process(device_id: &str, pid: u32, signal: &str) -> Result<(), AppError> {
+    // Only allow signals CARF itself uses for suspend/resume/teardown. A wider
+    // allowlist would let a bad caller smuggle arbitrary `kill -<value>` text
+    // through to the device shell.
+    const ALLOWED_SIGNALS: &[&str] = &["STOP", "CONT", "KILL", "TERM"];
+    if !ALLOWED_SIGNALS.contains(&signal) {
+        return Err(AppError::AdbError(format!(
+            "signal '{signal}' is not in the adb signal allowlist"
+        )));
+    }
     let signal_command = format!("kill -{signal} {pid}");
     let output = Command::new("adb")
         .args(["-s", device_id, "shell", "su", "-c", signal_command.as_str()])

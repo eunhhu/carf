@@ -3,6 +3,7 @@ import { createStore } from "solid-js/store";
 import type { ThreadInfo, BacktraceFrame, StalkerEvent } from "~/lib/types";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke, listen } from "~/lib/tauri";
+import { toastError } from "~/features/toast/toast.store";
 import {
   extractEventSessionId,
   normalizeStalkerEventPayload,
@@ -185,7 +186,7 @@ async function fetchBacktrace(
   } catch (err) {
     setBacktraceSignal([]);
     setState({ backtraceLoading: false });
-    console.error("fetchBacktrace error:", err);
+    toastError("Failed to fetch backtrace", err);
   }
 }
 
@@ -206,7 +207,7 @@ async function fetchContext(
   } catch (err) {
     setThreadContext(null);
     setState({ contextLoading: false });
-    console.error("fetchContext error:", err);
+    toastError("Failed to fetch thread context", err);
   }
 }
 
@@ -303,7 +304,7 @@ async function startStalker(
   } catch (err) {
     setState("stalkerActive", false);
     clearStalkerTracking();
-    console.error("startStalker error:", err);
+    toastError("Failed to start stalker", err);
   }
 }
 
@@ -318,7 +319,7 @@ async function stopStalker(
       params: { threadId },
     });
   } catch (err) {
-    console.error("stopStalker error:", err);
+    toastError("Failed to stop stalker", err);
   } finally {
     setState("stalkerActive", false);
     clearStalkerTracking();

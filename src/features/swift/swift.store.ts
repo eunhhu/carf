@@ -5,6 +5,7 @@ import { activeSession } from "~/features/session/session.store";
 import { scheduleTransition } from "~/lib/scheduling";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
+import { toastError } from "~/features/toast/toast.store";
 import type { HookInfo, SwiftMethodInfo, SwiftTypeInfo } from "~/lib/types";
 
 type SwiftSubTab = "methods";
@@ -232,7 +233,7 @@ async function fetchSwiftModules(sessionId: string): Promise<void> {
 				}
 			});
 		}
-		console.error("fetchSwiftModules error:", e);
+		toastError("Failed to fetch Swift modules", e);
 	}
 }
 
@@ -264,7 +265,7 @@ async function fetchSwiftTypes(
 				}
 			});
 		}
-		console.error("fetchSwiftTypes error:", e);
+		toastError("Failed to fetch Swift types", e);
 	}
 }
 
@@ -305,7 +306,7 @@ async function hookSwiftFunction(
 			true,
 		);
 	} catch (e) {
-		console.error("hookSwiftFunction error:", e);
+		toastError("Failed to hook Swift function", e);
 	}
 }
 
@@ -330,7 +331,7 @@ async function unhookSwiftFunction(
 			);
 		}
 	} catch (e) {
-		console.error("unhookSwiftFunction error:", e);
+		toastError("Failed to unhook Swift function", e);
 	}
 }
 

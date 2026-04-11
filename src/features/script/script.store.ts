@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
+import { toastError } from "~/features/toast/toast.store";
 
 interface ScriptTemplate {
 	name: string;
@@ -147,7 +148,7 @@ async function unloadScript(sessionId: string): Promise<void> {
 		});
 		setLoaded(false);
 	} catch (e) {
-		console.error("unloadScript failed:", e);
+		toastError("Failed to unload script", e);
 		throw e;
 	}
 }

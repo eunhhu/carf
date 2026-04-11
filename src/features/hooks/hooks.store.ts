@@ -6,6 +6,7 @@ import {
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke, listen } from "~/lib/tauri";
 import type { HookConfig, HookEvent, HookInfo } from "~/lib/types";
+import { toastError, toastWarning } from "~/features/toast/toast.store";
 
 interface HooksState {
 	hooks: HookInfo[];
@@ -211,7 +212,7 @@ async function fetchHooks(sessionId: string): Promise<void> {
 				.filter((hook): hook is HookInfo => hook !== null),
 		);
 	} catch (e) {
-		console.error("fetchHooks failed:", e);
+		toastError("Failed to fetch hooks", e);
 		throw e;
 	}
 }
@@ -238,7 +239,10 @@ async function toggleHook(
 		});
 		updateHookStatus(hook.id, active);
 	} catch (e) {
-		console.error("toggleHook failed:", e);
+		toastError(
+			active ? "Failed to enable hook" : "Failed to disable hook",
+			e,
+		);
 		throw e;
 	}
 }
@@ -261,7 +265,7 @@ async function deleteHook(sessionId: string, hook: HookInfo): Promise<void> {
 		});
 		removeHook(hook.id);
 	} catch (e) {
-		console.error("deleteHook failed:", e);
+		toastError("Failed to delete hook", e);
 		throw e;
 	}
 }
@@ -285,8 +289,9 @@ async function importHookConfigs(
 			} else if (config.type === "java") {
 				const parsed = parseJavaTarget(config.target);
 				if (!parsed) {
-					console.error(
-						`importHookConfigs: invalid Java target ${config.target}`,
+					toastWarning(
+						"Skipped import",
+						`Invalid Java target: ${config.target}`,
 					);
 					continue;
 				}
@@ -302,8 +307,9 @@ async function importHookConfigs(
 			} else if (config.type === "objc") {
 				const parsed = parseObjcTarget(config.target);
 				if (!parsed) {
-					console.error(
-						`importHookConfigs: invalid ObjC target ${config.target}`,
+					toastWarning(
+						"Skipped import",
+						`Invalid ObjC target: ${config.target}`,
 					);
 					continue;
 				}
@@ -345,7 +351,7 @@ async function importHookConfigs(
 				}
 			}
 		} catch (e) {
-			console.error(`importHookConfigs: failed for ${config.target}:`, e);
+			toastError(`Failed to import hook: ${config.target}`, e);
 		}
 	}
 }

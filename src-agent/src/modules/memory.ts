@@ -69,10 +69,14 @@ function scanRange(
   });
 }
 
+// Cap reads at 1 MiB: hex-encoding doubles the payload, and anything larger
+// would stall the RPC bridge. Callers that need more data should page through
+// chunk requests instead of asking for one gigantic buffer.
+const READ_MEMORY_MAX = 1 * 1024 * 1024;
 registerHandler("readMemory", (params: unknown) => {
   const { address, size } = params as { address: string; size: number };
-  if (size <= 0 || size > 64 * 1024 * 1024) {
-    throw new Error(`Invalid size: ${size} (max 64MB)`);
+  if (size <= 0 || size > READ_MEMORY_MAX) {
+    throw new Error(`Invalid size: ${size} (max ${READ_MEMORY_MAX} bytes)`);
   }
   const buf = readByteArray(address, size);
   if (!buf) throw new Error("Failed to read memory");

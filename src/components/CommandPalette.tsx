@@ -75,10 +75,18 @@ export function CommandPalette(props: CommandPaletteProps) {
     return groups;
   });
 
-  // Flat ordered list for keyboard navigation (matches render order)
+  // Flat ordered list for keyboard navigation (matches render order).
+  // We derive a lookup table from id → index so render-time index calculation
+  // never relies on a mutable closure that can race with reactive updates.
   const flatItems = createMemo<PaletteItem[]>(() => {
     const groups = groupedItems();
     return (["Tabs", "Pinboard"] as const).flatMap((cat) => groups[cat] ?? []);
+  });
+
+  const flatIndexMap = createMemo<Map<string, number>>(() => {
+    const map = new Map<string, number>();
+    flatItems().forEach((item, idx) => map.set(item.id, idx));
+    return map;
   });
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -110,9 +118,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     setQuery((e.currentTarget as HTMLInputElement).value);
     setSelectedIndex(0);
   }
-
-  // Track flat index across groups for selectedIndex mapping
-  let flatIndex = 0;
 
   return (
     <div
@@ -151,50 +156,47 @@ export function CommandPalette(props: CommandPaletteProps) {
               </div>
             }
           >
-            {(() => {
-              flatIndex = 0;
-              return (
-                <For each={["Tabs", "Pinboard"] as const}>
-                  {(category) => {
-                    const items = groupedItems()[category];
-                    if (!items || items.length === 0) return null;
-                    return (
-                      <div>
-                        {/* Category header */}
-                        <div class="px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                          {category}
-                        </div>
-                        <For each={items}>
-                          {(item) => {
-                            const currentIndex = flatIndex++;
-                            return (
-                              <button
-                                class="flex w-full items-center justify-between px-3 py-2 text-left transition-colors"
-                                classList={{
-                                  "bg-muted": selectedIndex() === currentIndex,
-                                  "hover:bg-surface-hover": selectedIndex() !== currentIndex,
-                                }}
-                                onClick={() => item.action()}
-                                onMouseEnter={() => setSelectedIndex(currentIndex)}
-                              >
-                                <span class="text-sm text-foreground">
-                                  {item.label}
-                                </span>
-                                <Show when={item.description}>
-                                  <span class="text-xs text-muted-foreground">
-                                    {item.description}
-                                  </span>
-                                </Show>
-                              </button>
-                            );
-                          }}
-                        </For>
+            <For each={["Tabs", "Pinboard"] as const}>
+              {(category) => {
+                const items = () => groupedItems()[category] ?? [];
+                return (
+                  <Show when={items().length > 0}>
+                    <div>
+                      <div class="px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                        {category}
                       </div>
-                    );
-                  }}
-                </For>
-              );
-            })()}
+                      <For each={items()}>
+                        {(item) => {
+                          const currentIndex = () =>
+                            flatIndexMap().get(item.id) ?? 0;
+                          return (
+                            <button
+                              class="flex w-full items-center justify-between px-3 py-2 text-left transition-colors"
+                              classList={{
+                                "bg-muted": selectedIndex() === currentIndex(),
+                                "hover:bg-surface-hover":
+                                  selectedIndex() !== currentIndex(),
+                              }}
+                              onClick={() => item.action()}
+                              onMouseEnter={() => setSelectedIndex(currentIndex())}
+                            >
+                              <span class="text-sm text-foreground">
+                                {item.label}
+                              </span>
+                              <Show when={item.description}>
+                                <span class="text-xs text-muted-foreground">
+                                  {item.description}
+                                </span>
+                              </Show>
+                            </button>
+                          );
+                        }}
+                      </For>
+                    </div>
+                  </Show>
+                );
+              }}
+            </For>
           </Show>
         </div>
 

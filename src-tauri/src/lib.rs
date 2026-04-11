@@ -22,10 +22,25 @@ use tauri::{Emitter, Manager};
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    let app_state = match AppState::new() {
+        Ok(state) => state,
+        Err(error) => {
+            // Surface a clear error to the user instead of a raw panic backtrace.
+            let message = format!(
+                "CARF failed to initialise: {error}\n\n\
+                 This usually means Frida could not locate a device manager.\n\
+                 Reinstall the app or file an issue with the log above."
+            );
+            log::error!("{message}");
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+    };
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .manage(AppState::new().expect("failed to initialize CARF application state"))
+        .manage(app_state)
         .setup(|app| {
             setup_event_forwarder(app);
             setup_device_change_listener(app);
@@ -112,15 +127,37 @@ fn setup_device_change_listener(app: &tauri::App) {
         std::thread::sleep(Duration::from_millis(500));
 
         loop {
-            // Acquire the Frida service through the managed state
+            // Acquire the Frida service through the managed state. Recover from
+            // poisoned locks rather than silently dropping the polling loop --
+            // otherwise a panic inside any other Frida command would stop all
+            // future device change notifications without any user-visible sign.
             let state = app_handle.state::<AppState>();
-            if let Ok(mut svc) = state.frida_service.lock() {
-                if let Ok(current_devices) = svc.list_devices() {
-                    let current_ids: HashSet<String> =
-                        current_devices.iter().map(|d| d.id.clone()).collect();
+            let svc_guard = match state.frida_service.lock() {
+                Ok(guard) => Some(guard),
+                Err(poisoned) => {
+                    log::warn!(
+                        "frida_service mutex was poisoned during device listener poll; recovering"
+                    );
+                    Some(poisoned.into_inner())
+                }
+            };
 
-                    if let Ok(mut known) = known_ids.lock() {
-                        // Emit added events for new devices
+            if let Some(mut svc) = svc_guard {
+                match svc.list_devices() {
+                    Ok(current_devices) => {
+                        let current_ids: HashSet<String> =
+                            current_devices.iter().map(|d| d.id.clone()).collect();
+
+                        let mut known = match known_ids.lock() {
+                            Ok(guard) => guard,
+                            Err(poisoned) => {
+                                log::warn!(
+                                    "device listener known_ids mutex was poisoned; recovering"
+                                );
+                                poisoned.into_inner()
+                            }
+                        };
+
                         for device in &current_devices {
                             if !known.contains(&device.id) {
                                 state.events.emit(
@@ -131,7 +168,6 @@ fn setup_device_change_listener(app: &tauri::App) {
                             }
                         }
 
-                        // Emit removed events for disappeared devices
                         for id in known.iter() {
                             if !current_ids.contains(id) {
                                 state
@@ -142,6 +178,9 @@ fn setup_device_change_listener(app: &tauri::App) {
                         }
 
                         *known = current_ids;
+                    }
+                    Err(error) => {
+                        log::debug!("device listener list_devices failed: {error}");
                     }
                 }
             }

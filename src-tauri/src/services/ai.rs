@@ -1,8 +1,83 @@
-use std::process::Command;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
+
+/// Hard limit for AI CLI subprocess runs. Passed from the request or defaults to
+/// two minutes — long enough for tool-using turns, short enough to avoid hung
+/// subprocesses holding a blocking thread forever.
+const DEFAULT_AI_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Run a `Command` to completion with a hard timeout. Returns captured stdout
+/// and stderr on success. On timeout the child is killed and an error surfaces.
+fn run_with_timeout(
+    mut command: Command,
+    timeout: Duration,
+) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), AppError> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|e| AppError::AiProviderError(format!("Failed to spawn AI CLI: {e}")))?;
+
+    // Stream stdout and stderr on dedicated threads so a pipe-full child cannot
+    // block us while the timeout clock runs.
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+
+    let (stdout_tx, stdout_rx) = mpsc::channel();
+    let stdout_handle = thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = stdout.take() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        let _ = stdout_tx.send(buf);
+    });
+
+    let (stderr_tx, stderr_rx) = mpsc::channel();
+    let stderr_handle = thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = stderr.take() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        let _ = stderr_tx.send(buf);
+    });
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = stdout_handle.join();
+                    let _ = stderr_handle.join();
+                    return Err(AppError::AiProviderError(format!(
+                        "AI CLI exceeded timeout of {}s",
+                        timeout.as_secs()
+                    )));
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                return Err(AppError::AiProviderError(format!(
+                    "Failed to poll AI CLI process: {e}"
+                )));
+            }
+        }
+    };
+
+    let _ = stdout_handle.join();
+    let _ = stderr_handle.join();
+    let stdout_bytes = stdout_rx.recv().unwrap_or_default();
+    let stderr_bytes = stderr_rx.recv().unwrap_or_default();
+    Ok((status, stdout_bytes, stderr_bytes))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,19 +148,16 @@ fn chat_claude(request: &AiChatRequest) -> Result<String, AppError> {
         .arg("--")
         .arg(&request.user_message);
 
-    let output = cmd
-        .output()
-        .map_err(|e| AppError::AiProviderError(format!("Failed to spawn claude: {e}")))?;
+    let (status, stdout_bytes, stderr_bytes) = run_with_timeout(cmd, DEFAULT_AI_TIMEOUT)?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr_bytes);
         return Err(AppError::AiProviderError(format!(
-            "claude exited with {}: {stderr}",
-            output.status
+            "claude exited with {status}: {stderr}"
         )));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = String::from_utf8_lossy(&stdout_bytes);
 
     // Claude --output-format json returns { "result": "...", ... }
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
@@ -124,19 +196,16 @@ fn chat_codex(request: &AiChatRequest) -> Result<String, AppError> {
 
     cmd.arg(&full_prompt);
 
-    let output = cmd
-        .output()
-        .map_err(|e| AppError::AiProviderError(format!("Failed to spawn codex: {e}")))?;
+    let (status, stdout_bytes, stderr_bytes) = run_with_timeout(cmd, DEFAULT_AI_TIMEOUT)?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr_bytes);
         return Err(AppError::AiProviderError(format!(
-            "codex exited with {}: {stderr}",
-            output.status
+            "codex exited with {status}: {stderr}"
         )));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = String::from_utf8_lossy(&stdout_bytes);
     Ok(stdout.trim().to_string())
 }
 

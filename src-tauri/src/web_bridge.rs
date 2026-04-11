@@ -4,20 +4,52 @@ use std::sync::Arc;
 
 use async_stream::stream;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 use crate::api;
 use crate::error::AppError;
 use crate::services::ai::{self, AiChatRequest};
 use crate::services::frida::{AttachOptions, SpawnOptions};
 use crate::state::{AppState, BridgeEvent};
+
+/// RPC methods that execute arbitrary JavaScript inside the Frida agent.
+/// These must never be callable through the HTTP bridge unless the operator
+/// has explicitly opted in via `CARF_ALLOW_EVAL=1`, since the bridge is
+/// reachable from any process on the local machine.
+const EVAL_METHODS: &[&str] = &["evaluate", "eval", "runScript", "loadScript"];
+
+fn bridge_auth_token() -> Option<String> {
+    std::env::var("CARF_BRIDGE_TOKEN").ok().and_then(|value| {
+        let trimmed = value.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
+}
+
+fn check_bridge_auth(headers: &HeaderMap) -> Result<(), StatusCode> {
+    let Some(expected) = bridge_auth_token() else {
+        return Ok(());
+    };
+    let provided = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(|value| value.trim());
+    match provided {
+        Some(token) if token == expected => Ok(()),
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +109,28 @@ struct RpcCallArgs {
 
 pub async fn run() -> anyhow::Result<()> {
     let state = Arc::new(AppState::new()?);
+
+    // Only allow requests from the local Vite dev server and loopback origins.
+    // Opening this to `Any` would let any webpage the user happens to visit drive
+    // Frida/ADB on their local machine, which would be a sandbox escape for the
+    // instrumentation backend.
+    let cors_origins = std::env::var("CARF_BRIDGE_CORS_ORIGINS")
+        .ok()
+        .map(|raw| {
+            raw.split(',')
+                .filter_map(|value| value.trim().parse().ok())
+                .collect::<Vec<_>>()
+        })
+        .filter(|list| !list.is_empty())
+        .unwrap_or_else(|| {
+            vec![
+                "http://localhost:1420".parse().unwrap(),
+                "http://127.0.0.1:1420".parse().unwrap(),
+                "http://localhost:7766".parse().unwrap(),
+                "http://127.0.0.1:7766".parse().unwrap(),
+            ]
+        });
+
     let app = Router::new()
         .route("/", get(index))
         .route("/api/health", get(health))
@@ -84,7 +138,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/api/invoke/{command}", post(invoke))
         .layer(
             CorsLayer::new()
-                .allow_origin(Any)
+                .allow_origin(AllowOrigin::list(cors_origins))
                 .allow_headers(Any)
                 .allow_methods(Any),
         )
@@ -94,6 +148,25 @@ pub async fn run() -> anyhow::Result<()> {
         .ok()
         .and_then(|value| value.parse::<SocketAddr>().ok())
         .unwrap_or_else(|| SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7766));
+
+    // Refuse to bind on non-loopback interfaces unless the operator has
+    // explicitly opted in. The bridge exposes full Frida/ADB control — exposing
+    // it on a LAN address by accident would hand the host over to anyone on the
+    // same network.
+    if !address.ip().is_loopback()
+        && std::env::var("CARF_BRIDGE_ALLOW_PUBLIC")
+            .map(|v| v != "1" && !v.eq_ignore_ascii_case("true"))
+            .unwrap_or(true)
+    {
+        anyhow::bail!(
+            "CARF_BRIDGE_ADDR={address} is not a loopback address. Set CARF_BRIDGE_ALLOW_PUBLIC=1 and configure CARF_BRIDGE_TOKEN to expose the bridge."
+        );
+    }
+    if !address.ip().is_loopback() && bridge_auth_token().is_none() {
+        anyhow::bail!(
+            "CARF_BRIDGE_ADDR={address} is not loopback but CARF_BRIDGE_TOKEN is not set. Refusing to start an unauthenticated public bridge."
+        );
+    }
 
     log::info!("Starting CARF Axum bridge on http://{address}");
     let listener = tokio::net::TcpListener::bind(address).await?;
@@ -185,9 +258,25 @@ async fn health() -> Json<Value> {
 async fn invoke(
     State(state): State<Arc<AppState>>,
     Path(command): Path<String>,
+    headers: HeaderMap,
     Json(args): Json<Value>,
 ) -> impl IntoResponse {
-    match dispatch(&state, &command, args) {
+    if let Err(status) = check_bridge_auth(&headers) {
+        return (status, Json(json!({ "error": "unauthorized" }))).into_response();
+    }
+
+    // Frida, ADB, and AI CLI calls are all blocking, so we must not run them on the
+    // Tokio reactor thread. spawn_blocking moves the work onto a dedicated pool so
+    // SSE streams and other concurrent requests stay responsive.
+    let result = tokio::task::spawn_blocking(move || dispatch(&state, &command, args))
+        .await
+        .unwrap_or_else(|join_error| {
+            Err(AppError::Internal(format!(
+                "bridge dispatch task panicked: {join_error}"
+            )))
+        });
+
+    match result {
         Ok(data) => (StatusCode::OK, Json(json!({ "data": data }))).into_response(),
         Err(error) => (
             status_code_for_error(&error),
@@ -199,6 +288,20 @@ async fn invoke(
 
 async fn events(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if check_bridge_auth(&headers).is_err() {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "unauthorized" })),
+        )
+            .into_response();
+    }
+    event_stream(state).into_response()
+}
+
+fn event_stream(
+    state: Arc<AppState>,
 ) -> Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>> {
     let mut receiver = state.events.subscribe();
 
@@ -305,9 +408,31 @@ fn dispatch(state: &AppState, command: &str, args: Value) -> Result<Value, AppEr
             .map_err(|error| AppError::Internal(error.to_string()))?),
         "rpc_call" => {
             let args: RpcCallArgs = parse_args(args)?;
+            if EVAL_METHODS.contains(&args.method.as_str())
+                && std::env::var("CARF_ALLOW_EVAL")
+                    .map(|v| v != "1" && !v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(true)
+            {
+                return Err(AppError::Internal(format!(
+                    "rpc method '{}' is disabled on the HTTP bridge. Set CARF_ALLOW_EVAL=1 to enable.",
+                    args.method
+                )));
+            }
             api::rpc_call(state, args.session_id, args.method, args.params)
         }
         "ai_chat" => {
+            // ai_chat shells out to the local `claude`/`codex` CLI, which can
+            // execute arbitrary commands on behalf of the bridge user. Only
+            // expose it when the operator explicitly opts in.
+            if std::env::var("CARF_ALLOW_BRIDGE_AI")
+                .map(|v| v != "1" && !v.eq_ignore_ascii_case("true"))
+                .unwrap_or(true)
+            {
+                return Err(AppError::Internal(
+                    "ai_chat is disabled on the HTTP bridge. Set CARF_ALLOW_BRIDGE_AI=1 to enable."
+                        .to_string(),
+                ));
+            }
             let request: AiChatRequest = parse_args(args)?;
             let response = ai::chat(&request)?;
             serde_json::to_value(response)

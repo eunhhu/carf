@@ -15,6 +15,16 @@ let monitorActive = false;
 const monitorEvents: MonitorEvent[] = [];
 const MAX_EVENTS = 10000;
 
+// Emit at most `EMIT_RATE_LIMIT` events per `EMIT_WINDOW_MS` window so a hot
+// access pattern cannot saturate the Frida RPC channel. Extra events are still
+// recorded to the ring buffer so callers can drain them via
+// `drainMonitorEvents` later.
+const EMIT_WINDOW_MS = 100;
+const EMIT_RATE_LIMIT = 200;
+let emitWindowStart = 0;
+let emitsInWindow = 0;
+let droppedSinceLastWarn = 0;
+
 registerHandler("startMemoryMonitor", (params: unknown) => {
   if (monitorActive) {
     throw new Error("Memory monitor already active");
@@ -53,10 +63,30 @@ registerHandler("startMemoryMonitor", (params: unknown) => {
       }
       monitorEvents.push(event);
 
-      emitMemoryAccess(event);
+      const now = Date.now();
+      if (now - emitWindowStart >= EMIT_WINDOW_MS) {
+        if (droppedSinceLastWarn > 0) {
+          emitLog(
+            "warn",
+            `Memory monitor throttled: dropped ${droppedSinceLastWarn} events over the last window`,
+          );
+          droppedSinceLastWarn = 0;
+        }
+        emitWindowStart = now;
+        emitsInWindow = 0;
+      }
+      if (emitsInWindow < EMIT_RATE_LIMIT) {
+        emitsInWindow += 1;
+        emitMemoryAccess(event);
+      } else {
+        droppedSinceLastWarn += 1;
+      }
     },
   });
 
+  emitWindowStart = Date.now();
+  emitsInWindow = 0;
+  droppedSinceLastWarn = 0;
   monitorActive = true;
   return { started: true, rangeCount: ranges.length };
 });

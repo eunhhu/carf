@@ -28,8 +28,10 @@ function toHookInfo(hook: HookEntry) {
 }
 
 function resolveTarget(target: string): NativePointer {
-  // If it starts with 0x or is a pure hex string, treat as address
-  if (/^0x[0-9a-fA-F]+$/.test(target) || /^[0-9a-fA-F]{8,}$/.test(target)) {
+  // Only treat as address when the 0x prefix is explicit. Without the prefix we
+  // cannot distinguish a symbol like "deadbeef" (a valid C identifier) from a
+  // hex address, and dereferencing it caused SIGSEGVs in the field.
+  if (/^0x[0-9a-fA-F]+$/.test(target)) {
     return ptr(target);
   }
 

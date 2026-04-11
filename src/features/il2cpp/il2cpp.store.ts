@@ -5,6 +5,7 @@ import { activeSession } from "~/features/session/session.store";
 import { scheduleTransition } from "~/lib/scheduling";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
+import { toastError } from "~/features/toast/toast.store";
 import type {
 	HookInfo,
 	Il2cppClassInfo,
@@ -308,7 +309,7 @@ async function fetchIl2cppClasses(sessionId: string): Promise<void> {
 				}
 			});
 		}
-		console.error("fetchIl2cppClasses error:", e);
+		toastError("Failed to fetch Il2Cpp classes", e);
 	}
 }
 
@@ -345,7 +346,7 @@ async function fetchIl2cppMethods(
 				}
 			});
 		}
-		console.error("fetchIl2cppMethods error:", e);
+		toastError("Failed to fetch Il2Cpp methods", e);
 	}
 }
 
@@ -374,7 +375,7 @@ async function fetchIl2cppFields(
 			});
 		}
 	} catch (e) {
-		console.error("fetchIl2cppFields error:", e);
+		toastError("Failed to fetch Il2Cpp fields", e);
 	}
 }
 
@@ -406,7 +407,7 @@ async function hookIl2cppMethod(
 			true,
 		);
 	} catch (e) {
-		console.error("hookIl2cppMethod error:", e);
+		toastError("Failed to hook Il2Cpp method", e);
 	}
 }
 
@@ -431,7 +432,7 @@ async function unhookIl2cppMethod(
 			);
 		}
 	} catch (e) {
-		console.error("unhookIl2cppMethod error:", e);
+		toastError("Failed to unhook Il2Cpp method", e);
 	}
 }
 
@@ -451,7 +452,7 @@ async function dumpIl2cppMetadata(sessionId: string): Promise<string | null> {
 		);
 		return `${result.moduleName ?? "IL2CPP"}: ${result.totalAssemblies ?? 0} assemblies, ${dumpedClasses} classes`;
 	} catch (e) {
-		console.error("dumpIl2cppMetadata error:", e);
+		toastError("Failed to dump Il2Cpp metadata", e);
 		return null;
 	}
 }

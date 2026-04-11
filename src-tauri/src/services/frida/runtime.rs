@@ -23,6 +23,12 @@ use super::util::{
 const FRIDA_ACTOR_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const COMPILED_AGENT_PATH: &str = "src-agent/dist/_agent.js";
 
+/// Agent JS bundle baked in at compile time. Using `include_str!` guarantees the
+/// shipped binary has the agent source even when the original source tree is
+/// unavailable (as happens on every end-user machine). Build prerequisite:
+/// `bun run compile:agent` must run before `cargo build`.
+const EMBEDDED_AGENT_JS: &str = include_str!("../../../../src-agent/dist/_agent.js");
+
 type ActorTask = Box<dyn FnOnce(&mut FridaActor) + Send + 'static>;
 
 struct ActorHandle {
@@ -534,9 +540,17 @@ impl FridaActor {
         };
 
         if !error.is_null() {
+            // `spawn` started the target in suspended state; if `attach` fails we
+            // must kill the orphaned process or it stays suspended forever.
+            let message = take_gerror_message(error);
+            if let Err(kill_err) = device.as_mut().kill(pid) {
+                log::warn!(
+                    "Failed to kill orphaned spawn (pid {pid}) after attach failure: {kill_err}"
+                );
+            }
             return Err(AppError::AttachFailed(
                 options.identifier.clone(),
-                take_gerror_message(error),
+                message,
             ));
         }
 
@@ -929,19 +943,27 @@ impl FridaActor {
     }
 
     fn get_core_agent_source(&mut self) -> Result<&str, AppError> {
-        let path = project_root().join(COMPILED_AGENT_PATH);
-        let source = std::fs::read_to_string(&path).map_err(|error| {
-            AppError::ScriptLoadFailed(format!(
-                "failed to read precompiled agent at {}: {}. Run `bun run compile:agent`.",
-                path.display(),
-                error
-            ))
-        })?;
-        self.agent_source = Some(source);
+        // In debug builds, prefer the on-disk copy so `bun run compile:agent`
+        // changes take effect without a Rust rebuild. In release builds we use
+        // the compile-time embedded copy exclusively so end-user machines do not
+        // need the source tree at runtime.
+        #[cfg(debug_assertions)]
+        {
+            let path = project_root().join(COMPILED_AGENT_PATH);
+            if let Ok(source) = std::fs::read_to_string(&path) {
+                self.agent_source = Some(source);
+                return self.agent_source.as_deref().ok_or_else(|| {
+                    AppError::ScriptLoadFailed("Compiled agent is unavailable".to_string())
+                });
+            }
+        }
 
-        self.agent_source
-            .as_deref()
-            .ok_or_else(|| AppError::ScriptLoadFailed("Compiled agent is unavailable".to_string()))
+        if EMBEDDED_AGENT_JS.is_empty() {
+            return Err(AppError::ScriptLoadFailed(
+                "Embedded agent is empty. Run `bun run compile:agent` before building.".to_string(),
+            ));
+        }
+        Ok(EMBEDDED_AGENT_JS)
     }
 
     fn get_device(&self, device_id: &str) -> Result<OwnedDevice, AppError> {

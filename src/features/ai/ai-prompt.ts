@@ -1,5 +1,5 @@
 import type { SessionInfo } from "~/lib/types";
-import { buildToolListPrompt } from "./ai-tools";
+import { CARF_TOOLS, buildToolListPrompt } from "./ai-tools";
 
 /** Build the system prompt for AI agents with full CARF tool access. */
 export function buildSystemPrompt(session: SessionInfo): string {
@@ -14,7 +14,7 @@ export function buildSystemPrompt(session: SessionInfo): string {
 - Identifier: ${session.identifier ?? "N/A"}
 
 ## Your Capabilities
-You can call any of the ${toolList.split("\n  - ").length} CARF instrumentation tools listed below.
+You can call any of the ${CARF_TOOLS.length} CARF instrumentation tools listed below.
 These tools execute directly inside the target process via Frida's agent runtime.
 
 ## Tool Invocation Format

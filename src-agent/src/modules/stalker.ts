@@ -416,8 +416,12 @@ registerHandler("startStalker", (params: unknown) => {
   if (events.compile) eventMask.push("compile");
 
   try {
-    if (samplingMode) {
-    } else {
+    // Android's SELinux + verified boot makes Frida's Stalker rewrite the
+    // thread that owns the instrumented code, which can deadlock the
+    // target. On Android we fall back to periodic sampling instead of
+    // calling Stalker.follow. The actual sampling loop is started
+    // elsewhere via ensureFlushTimer + onSampleTick.
+    if (!samplingMode) {
       configureStalkerEnvironment(summaryMode);
       Stalker.follow(threadId, {
         events: {
@@ -500,6 +504,13 @@ registerHandler("stopStalker", (params: unknown) => {
 
   if (remaining.length > 0) {
     emitStalkerEvent(remaining);
+  }
+
+  // Tear the flush timer down as soon as the last session disappears so we
+  // don't leave a periodic interval running inside the target process.
+  if (sessions.size === 0 && flushTimer !== null) {
+    clearInterval(flushTimer);
+    flushTimer = null;
   }
 
   return { threadId, stopped: true };

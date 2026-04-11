@@ -190,38 +190,86 @@ registerHandler("hookJavaMethod", (params: unknown) => {
           );
         }
 
-        targetOverload.implementation = function (this: unknown, ...args: unknown[]) {
+        // Frida's Java bridge stores the original implementation behind the
+        // overload object, so invoking `targetOverload.apply(this, args)` from
+        // inside the replacement function runs the real method (not the hook
+        // again). This is the same pattern used by frida-java-bridge examples.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const original = targetOverload as any;
+        original.implementation = function (this: unknown, ...args: unknown[]) {
           const hook = javaHooks.get(hookId);
+          let entered = false;
 
-          if (hook?.active) {
-            hook.hits += 1;
-            emitHookEvent(hookId, "enter", {
-              className,
-              methodName,
-              target: `${className}.${methodName}`,
-              args: args.map(String),
-              threadId: Process.getCurrentThreadId(),
-              address: null,
-              backtrace: [],
-            });
+          try {
+            if (hook?.active) {
+              hook.hits += 1;
+              entered = true;
+              try {
+                emitHookEvent(hookId, "enter", {
+                  className,
+                  methodName,
+                  target: `${className}.${methodName}`,
+                  args: args.map((a) => {
+                    try {
+                      return String(a);
+                    } catch {
+                      return "<unstringifiable>";
+                    }
+                  }),
+                  threadId: Process.getCurrentThreadId(),
+                  address: null,
+                  backtrace: [],
+                });
+              } catch {
+                // Never let event emission break the real call path.
+              }
+            }
+
+            const retval = original.apply(this, args);
+
+            if (entered) {
+              try {
+                emitHookEvent(hookId, "leave", {
+                  className,
+                  methodName,
+                  target: `${className}.${methodName}`,
+                  retval: (() => {
+                    try {
+                      return retval === undefined || retval === null
+                        ? String(retval)
+                        : String(retval);
+                    } catch {
+                      return "<unstringifiable>";
+                    }
+                  })(),
+                  threadId: Process.getCurrentThreadId(),
+                  address: null,
+                  backtrace: [],
+                });
+              } catch {
+                // Swallow emission errors.
+              }
+            }
+
+            return retval;
+          } catch (err) {
+            if (entered) {
+              try {
+                emitHookEvent(hookId, "leave", {
+                  className,
+                  methodName,
+                  target: `${className}.${methodName}`,
+                  error: err instanceof Error ? err.message : String(err),
+                  threadId: Process.getCurrentThreadId(),
+                  address: null,
+                  backtrace: [],
+                });
+              } catch {
+                // Swallow emission errors.
+              }
+            }
+            throw err;
           }
-
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const retval = (targetOverload as any).call(this, ...args);
-
-          if (hook?.active) {
-            emitHookEvent(hookId, "leave", {
-              className,
-              methodName,
-              target: `${className}.${methodName}`,
-              retval: String(retval),
-              threadId: Process.getCurrentThreadId(),
-              address: null,
-              backtrace: [],
-            });
-          }
-
-          return retval;
         };
 
         const hookEntry: JavaHookEntry = {

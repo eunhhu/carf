@@ -274,9 +274,15 @@ impl AdbService {
 
     /// Executes a shell command on the device and returns stdout.
     ///
-    /// The command is passed as a program name and separate arguments to prevent
-    /// shell injection. The caller must split the command into tokens.
+    /// Even though adb accepts program + args as separate tokens, the device side
+    /// re-joins them and runs them through `/system/bin/sh -c`. Therefore we must
+    /// reject shell metacharacters in both the program and its arguments so that
+    /// a malicious caller can't chain or inject additional commands.
     pub fn shell(&self, serial: &str, command: &str, args: &[String]) -> Result<String, AppError> {
+        validate_shell_token(command)?;
+        for arg in args {
+            validate_shell_token(arg)?;
+        }
         let mut shell_args: Vec<&str> = vec!["shell", command];
         for arg in args {
             shell_args.push(arg.as_str());
@@ -319,4 +325,25 @@ impl Default for AdbService {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Reject any shell metacharacter so a caller can't inject additional
+/// device-side commands through `adb shell`. adb forwards its argv by
+/// re-joining the tokens and piping them through `sh -c`, so the
+/// per-argument split that Rust's `Command` provides is not sufficient.
+fn validate_shell_token(token: &str) -> Result<(), AppError> {
+    if token.is_empty() {
+        return Err(AppError::AdbError(
+            "shell token must not be empty".to_string(),
+        ));
+    }
+    const FORBIDDEN: &[char] = &[
+        ';', '&', '|', '`', '$', '>', '<', '\n', '\r', '(', ')', '{', '}', '\\', '"', '\'',
+    ];
+    if let Some(bad) = token.chars().find(|c| FORBIDDEN.contains(c)) {
+        return Err(AppError::AdbError(format!(
+            "shell token contains forbidden character {bad:?}"
+        )));
+    }
+    Ok(())
 }

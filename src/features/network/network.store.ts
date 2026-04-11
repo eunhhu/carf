@@ -6,6 +6,7 @@ import {
 } from "~/lib/event-normalizers";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke, listen } from "~/lib/tauri";
+import { toastError } from "~/features/toast/toast.store";
 import type { NetworkRequest } from "~/lib/types";
 
 interface NetworkState {
@@ -117,7 +118,7 @@ async function startCapture(sessionId: string): Promise<void> {
 		});
 		setState("capturing", true);
 	} catch (err) {
-		console.error("[network] startCapture failed:", err);
+		toastError("Failed to start network capture", err);
 	}
 }
 
@@ -130,7 +131,7 @@ async function stopCapture(sessionId: string): Promise<void> {
 		});
 		setState("capturing", false);
 	} catch (err) {
-		console.error("[network] stopCapture failed:", err);
+		toastError("Failed to stop network capture", err);
 	}
 }
 

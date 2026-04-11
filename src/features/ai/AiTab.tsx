@@ -283,7 +283,7 @@ function EmptyState(props: { provider: AiProvider }) {
 			<div>
 				<h3 class="text-sm font-semibold">CARF AI Agent</h3>
 				<p class="mt-1 text-xs text-muted-foreground">
-					Powered by {providerLabel()} — 127 instrumentation tools
+					Powered by {providerLabel()} — 106 instrumentation tools
 				</p>
 			</div>
 			<div class="grid max-w-md gap-2 text-left">

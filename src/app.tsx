@@ -1,6 +1,7 @@
 import { Match, Suspense, Switch, lazy, onCleanup, onMount } from "solid-js";
 import "~/features/session/session-scope";
 import { appView } from "~/features/session/session.store";
+import { ToastHost } from "~/features/toast/ToastHost";
 import { scheduleIdle } from "~/lib/scheduling";
 
 const loadDevicePanel = () => import("~/features/device/DevicePanel");
@@ -44,6 +45,7 @@ export function App() {
 					</Match>
 				</Switch>
 			</Suspense>
+			<ToastHost />
 		</div>
 	);
 }

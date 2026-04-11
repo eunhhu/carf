@@ -4,6 +4,7 @@ import { addHook } from "~/features/hooks/hooks.store";
 import { scheduleTransition } from "~/lib/scheduling";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
+import { toastError } from "~/features/toast/toast.store";
 import type { HookInfo, ObjCMethodInfo } from "~/lib/types";
 
 type ObjCSubTab = "methods" | "instances";
@@ -150,7 +151,7 @@ async function fetchObjcClasses(
 		});
 	} catch (e) {
 		setState({ classesLoading: false });
-		console.error("fetchObjcClasses error:", e);
+		toastError("Failed to fetch ObjC classes", e);
 	}
 }
 
@@ -170,7 +171,7 @@ async function fetchObjcMethods(
 		});
 	} catch (e) {
 		setState({ detailLoading: false });
-		console.error("fetchObjcMethods error:", e);
+		toastError("Failed to fetch ObjC methods", e);
 	}
 }
 
@@ -189,7 +190,7 @@ async function fetchObjcInstances(
 			setInstances(result);
 		});
 	} catch (e) {
-		console.error("fetchObjcInstances error:", e);
+		toastError("Failed to fetch ObjC instances", e);
 	}
 }
 
@@ -212,7 +213,7 @@ async function hookObjcMethod(
 			true,
 		);
 	} catch (e) {
-		console.error("hookObjcMethod error:", e);
+		toastError("Failed to hook ObjC method", e);
 	}
 }
 

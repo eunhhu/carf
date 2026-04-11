@@ -265,8 +265,9 @@ registerHandler("hookSwiftFunction", (params: unknown) => {
   let addr: NativePointer | null = null;
   let resolvedName = target;
 
-  // Direct address
-  if (/^0x[0-9a-fA-F]+$/.test(target) || /^[0-9a-fA-F]{8,}$/.test(target)) {
+  // Direct address — require explicit 0x prefix to avoid misinterpreting
+  // symbol names like "deadbeef" as raw pointers (SIGSEGV on dereference).
+  if (/^0x[0-9a-fA-F]+$/.test(target)) {
     addr = ptr(target);
   }
 

@@ -18,6 +18,7 @@ import { CopyButton } from "~/components/CopyButton";
 import { InlineActions } from "~/components/InlineActions";
 import { navigateTo } from "~/lib/navigation";
 import { pickTextFile } from "~/lib/file-picker";
+import { toastError } from "~/features/toast/toast.store";
 import { cn } from "~/lib/cn";
 import { formatAddress } from "~/lib/format";
 import type { PinItem } from "~/lib/types";
@@ -56,7 +57,7 @@ function PinboardTab() {
         console.info("No new pins to import (all duplicates)");
       }
     } catch (e) {
-      console.error("handleImport failed:", e);
+      toastError("Failed to import pins", e);
     }
   }
 

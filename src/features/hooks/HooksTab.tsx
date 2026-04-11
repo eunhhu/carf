@@ -1,5 +1,4 @@
 import {
-	For,
 	Show,
 	createDeferred,
 	createMemo,
@@ -9,10 +8,12 @@ import {
 import { ActionPopover, buildAddressActions } from "~/components/ActionPopover";
 import { CopyButton } from "~/components/CopyButton";
 import { InlineActions } from "~/components/InlineActions";
+import { VirtualList } from "~/components/VirtualList";
 import type { OverflowAction } from "~/components/InlineActions";
 import { activeSession } from "~/features/session/session.store";
 import { cn } from "~/lib/cn";
 import { pickTextFile } from "~/lib/file-picker";
+import { toastError } from "~/features/toast/toast.store";
 import { formatAddress } from "~/lib/format";
 import { navigateTo } from "~/lib/navigation";
 import type { HookConfig, HookInfo } from "~/lib/types";
@@ -35,9 +36,8 @@ function HooksTab() {
 	onMount(() => {
 		const session = activeSession();
 		if (session) {
-			fetchHooks(session.id).catch((e) =>
-				console.error("fetchHooks on mount failed:", e),
-			);
+			// Error already surfaced via toast in the store.
+			void fetchHooks(session.id).catch(() => {});
 		}
 	});
 
@@ -70,24 +70,22 @@ function HooksTab() {
 				await importHookConfigs(session.id, parsed.hooks);
 			}
 		} catch (e) {
-			console.error("handleImport failed:", e);
+			toastError("Failed to import hooks", e);
 		}
 	}
 
 	async function handleToggle(hook: HookInfo) {
 		const session = activeSession();
 		if (!session) return;
-		await toggleHook(session.id, hook, !hook.active).catch((e) =>
-			console.error("toggleHook failed:", e),
-		);
+		// Error already surfaced via toast in the store.
+		await toggleHook(session.id, hook, !hook.active).catch(() => {});
 	}
 
 	async function handleDelete(hook: HookInfo) {
 		const session = activeSession();
 		if (!session) return;
-		await deleteHook(session.id, hook).catch((e) =>
-			console.error("deleteHook failed:", e),
-		);
+		// Error already surfaced via toast in the store.
+		await deleteHook(session.id, hook).catch(() => {});
 	}
 
 	function handleExportAsScript() {
@@ -281,7 +279,12 @@ function HooksTab() {
 					<span class="w-20 shrink-0" />
 				</div>
 
-				<For each={filtered()}>
+				<VirtualList
+					items={filtered()}
+					itemHeight={34}
+					overscan={8}
+					class="min-h-0 flex-1 overflow-auto"
+				>
 					{(hook) => (
 						<div class="group/row flex items-center border-b border-border/30 px-4 py-1.5 text-xs hover:bg-surface-hover">
 							<span class="w-6 shrink-0">
@@ -352,7 +355,7 @@ function HooksTab() {
 							</span>
 						</div>
 					)}
-				</For>
+				</VirtualList>
 
 				<Show when={filtered().length === 0}>
 					<div class="flex h-32 items-center justify-center text-xs text-muted-foreground">

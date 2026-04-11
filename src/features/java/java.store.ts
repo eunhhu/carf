@@ -5,6 +5,7 @@ import { activeSession } from "~/features/session/session.store";
 import { scheduleTransition } from "~/lib/scheduling";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
+import { toastError } from "~/features/toast/toast.store";
 import type { HookInfo, JavaFieldInfo, JavaMethodInfo } from "~/lib/types";
 
 type JavaSubTab = "methods" | "fields" | "instances";
@@ -235,7 +236,7 @@ async function checkJavaAvailable(sessionId: string): Promise<boolean> {
 		}
 		return result;
 	} catch (e) {
-		console.error("checkJavaAvailable error:", e);
+		toastError("Failed to check Java availability", e);
 		if (shouldCommitRequest(sessionId, "availability", requestId)) {
 			scheduleTransition(() => {
 				if (shouldCommitRequest(sessionId, "availability", requestId)) {
@@ -274,7 +275,7 @@ async function fetchJavaClasses(
 				}
 			});
 		}
-		console.error("fetchJavaClasses error:", e);
+		toastError("Failed to fetch Java classes", e);
 	}
 }
 
@@ -305,7 +306,7 @@ async function fetchJavaMethods(
 				}
 			});
 		}
-		console.error("fetchJavaMethods error:", e);
+		toastError("Failed to fetch Java methods", e);
 	}
 }
 
@@ -328,7 +329,7 @@ async function fetchJavaFields(
 			});
 		}
 	} catch (e) {
-		console.error("fetchJavaFields error:", e);
+		toastError("Failed to fetch Java fields", e);
 	}
 }
 
@@ -352,7 +353,7 @@ async function fetchJavaInstances(
 			});
 		}
 	} catch (e) {
-		console.error("fetchJavaInstances error:", e);
+		toastError("Failed to fetch Java instances", e);
 	}
 }
 
@@ -377,7 +378,7 @@ async function hookJavaMethod(
 			),
 		);
 	} catch (e) {
-		console.error("hookJavaMethod error:", e);
+		toastError("Failed to hook Java method", e);
 	}
 }
 

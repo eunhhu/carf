@@ -41,7 +41,12 @@ const PROTECTION_COLORS: Record<string, string> = {
 function MemoryTab() {
   createEffect(() => {
     const session = activeSession();
-    if (session && memorySubMode() === "map") {
+    if (
+      session &&
+      memorySubMode() === "map" &&
+      !memoryState.rangesLoading &&
+      ranges().length === 0
+    ) {
       fetchRanges(session.id);
     }
   });
@@ -245,7 +250,7 @@ function HexView() {
 
   const formatOffset = (offset: number) => {
     const addr = baseAddr() + BigInt(offset);
-    return `0x${addr.toString(16).padStart(8, "0")}`;
+    return `0x${addr.toString(16).padStart(16, "0")}`;
   };
 
   return (

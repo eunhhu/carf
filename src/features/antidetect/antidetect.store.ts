@@ -2,6 +2,7 @@ import { createStore } from "solid-js/store";
 import { activeSession } from "~/features/session/session.store";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
+import { toastError } from "~/features/toast/toast.store";
 import type { BypassResult, CloakStatus } from "~/lib/types";
 
 interface RawCloakStatus {
@@ -93,7 +94,7 @@ async function fetchCloakStatus(sessionId: string): Promise<void> {
 		});
 	} catch (e) {
 		setState("statusLoading", false);
-		console.error("fetchCloakStatus error:", e);
+		toastError("Failed to fetch cloak status", e);
 	}
 }
 
@@ -111,7 +112,7 @@ async function cloakThread(
 			await fetchCloakStatus(sessionId);
 		}
 	} catch (e) {
-		console.error("cloakThread error:", e);
+		toastError("Failed to cloak thread", e);
 	}
 }
 
@@ -129,7 +130,7 @@ async function uncloakThread(
 			await fetchCloakStatus(sessionId);
 		}
 	} catch (e) {
-		console.error("uncloakThread error:", e);
+		toastError("Failed to uncloak thread", e);
 	}
 }
 
@@ -148,7 +149,7 @@ async function cloakRange(
 			await fetchCloakStatus(sessionId);
 		}
 	} catch (e) {
-		console.error("cloakRange error:", e);
+		toastError("Failed to cloak range", e);
 	}
 }
 
@@ -167,7 +168,7 @@ async function uncloakRange(
 			await fetchCloakStatus(sessionId);
 		}
 	} catch (e) {
-		console.error("uncloakRange error:", e);
+		toastError("Failed to uncloak range", e);
 	}
 }
 
@@ -186,7 +187,7 @@ async function bypassSslPinning(sessionId: string): Promise<void> {
 		});
 	} catch (e) {
 		setState("sslBypassing", false);
-		console.error("bypassSslPinning error:", e);
+		toastError("Failed to bypass SSL pinning", e);
 	}
 }
 
@@ -205,7 +206,7 @@ async function bypassRootDetection(sessionId: string): Promise<void> {
 		});
 	} catch (e) {
 		setState("rootBypassing", false);
-		console.error("bypassRootDetection error:", e);
+		toastError("Failed to bypass root detection", e);
 	}
 }
 

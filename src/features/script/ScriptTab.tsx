@@ -2,6 +2,7 @@ import { For, Show, createMemo } from "solid-js";
 import { activeSession } from "~/features/session/session.store";
 import { cn } from "~/lib/cn";
 import { pickTextFile } from "~/lib/file-picker";
+import { toastError } from "~/features/toast/toast.store";
 import {
 	editorDirty,
 	loadScript,
@@ -23,7 +24,7 @@ async function handleOpenFile() {
 			setScriptPath(selected.path);
 		}
 	} catch (e) {
-		console.error("handleOpenFile failed:", e);
+		toastError("Failed to open script file", e);
 	}
 }
 

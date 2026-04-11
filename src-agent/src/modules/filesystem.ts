@@ -130,16 +130,21 @@ registerHandler("readFile", (params: unknown) => {
     encoding?: "hex" | "utf8";
   };
 
+  // Hard caps: 4 MiB for utf8 text and 4 MiB for binary chunks. Frida RPC has
+  // to serialise these into a single message, and anything larger blocks the
+  // Agent main loop while starving other handlers. Callers that need more
+  // should paginate via `offset`+`size`.
+  const READ_FILE_UTF8_MAX = 4 * 1024 * 1024;
+  const READ_FILE_BIN_MAX = 4 * 1024 * 1024;
+
   if (encoding === "utf8") {
     const textFile = new File(path, "r");
     try {
       if (offset > 0) textFile.seek(offset);
       const text = textFile.readText();
       if (!text) return "";
-      if (typeof size === "number" && size > 0) {
-        return text.slice(0, size);
-      }
-      return text;
+      const limit = typeof size === "number" && size > 0 ? Math.min(size, READ_FILE_UTF8_MAX) : READ_FILE_UTF8_MAX;
+      return text.slice(0, limit);
     } finally {
       textFile.close();
     }
@@ -150,7 +155,9 @@ registerHandler("readFile", (params: unknown) => {
     if (offset > 0) file.seek(offset);
 
     const chunkSize = size ?? 64 * 1024; // default 64KB
-    if (chunkSize > 64 * 1024 * 1024) throw new Error("Requested size exceeds 64MB limit");
+    if (chunkSize > READ_FILE_BIN_MAX) {
+      throw new Error(`Requested size exceeds ${READ_FILE_BIN_MAX} byte limit`);
+    }
 
     const data = file.readBytes(chunkSize);
     if (!data) return "";

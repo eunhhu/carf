@@ -11,12 +11,8 @@ interface AiMessageProps {
 export function AiMessageBubble(props: AiMessageProps) {
 	const msg = () => props.message;
 
-	// Hide tool-result messages from display
-	if (props.message.role === "tool-result") {
-		return null;
-	}
-
 	return (
+		<Show when={msg().role !== "tool-result"}>
 		<div
 			class={cn(
 				"flex w-full gap-3 px-4 py-3",
@@ -79,5 +75,6 @@ export function AiMessageBubble(props: AiMessageProps) {
 				</div>
 			</Show>
 		</div>
+		</Show>
 	);
 }

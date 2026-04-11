@@ -48,15 +48,16 @@ function ThreadsTab() {
     }
   });
 
-  // Auto-refresh based on refreshInterval signal
+  // Auto-refresh based on refreshInterval + active session. Both are tracked
+  // so switching sessions tears down the stale interval and restarts with the
+  // new session ID captured directly (no `activeSession()` lookup mid-tick,
+  // which previously risked firing against a detached session).
   createEffect(() => {
     const interval = refreshInterval();
-    if (interval === 0) return;
+    const sessionId = activeSession()?.id;
+    if (interval === 0 || !sessionId) return;
     const id = setInterval(() => {
-      const session = activeSession();
-      if (session) {
-        void fetchThreads(session.id);
-      }
+      void fetchThreads(sessionId);
     }, interval);
     onCleanup(() => clearInterval(id));
   });

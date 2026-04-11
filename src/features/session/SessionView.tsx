@@ -1,4 +1,4 @@
-import { Show, createEffect, createSignal, onCleanup } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, untrack } from "solid-js";
 import { CommandPalette } from "~/components/CommandPalette";
 import { ConsolePanel } from "~/features/console/ConsolePanel";
 import {
@@ -42,21 +42,27 @@ import { SessionToolbar } from "./SessionToolbar";
 export function SessionView() {
 	const [commandPaletteOpen, setCommandPaletteOpen] = createSignal(false);
 
-	// Set up session event listeners whenever the active session changes
+	// Set up session event listeners whenever the active session changes.
+	// Reads that should not re-trigger the effect are wrapped in `untrack`,
+	// otherwise changes to hooksState/moduleState/memoryState/activeTab would
+	// tear down and re-create every listener on every state change, dropping
+	// in-flight events and churning the backend subscription handles.
 	createEffect(() => {
 		const session = activeSession();
 		if (!session) return;
 
 		const sessionId = session.id;
-		if (hooksState.hooks.length === 0) {
-			fetchHooks(sessionId).catch(() => {});
-		}
-		if (activeTab() === "modules" && moduleState.modules.length === 0) {
-			fetchModules(sessionId).catch(() => {});
-		}
-		if (activeTab() === "memory" && memoryState.ranges.length === 0) {
-			fetchRanges(sessionId).catch(() => {});
-		}
+		untrack(() => {
+			if (hooksState.hooks.length === 0) {
+				fetchHooks(sessionId).catch(() => {});
+			}
+			if (activeTab() === "modules" && moduleState.modules.length === 0) {
+				fetchModules(sessionId).catch(() => {});
+			}
+			if (activeTab() === "memory" && memoryState.ranges.length === 0) {
+				fetchRanges(sessionId).catch(() => {});
+			}
+		});
 
 		const unlistenMessage = listen<{
 			level: "log" | "warn" | "error" | "info" | "debug";

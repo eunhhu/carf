@@ -164,9 +164,20 @@ fn load_applications(
             .frida_service
             .lock()
             .map_err(|_| AppError::Internal("frida_service lock poisoned".to_string()))?;
+        // Frida's `enumerate_applications` isn't implemented for every
+        // device type, and on those devices it returns a generic `Internal`
+        // error. We still want to fall through to the ADB-based path, but
+        // we should at least surface *why* we're falling through so
+        // genuinely broken devices don't look identical to unsupported
+        // ones in the logs.
         let frida_apps = match svc.list_applications(device_id) {
             Ok(apps) => apps,
-            Err(AppError::Internal(_)) => Vec::new(),
+            Err(AppError::Internal(message)) => {
+                log::debug!(
+                    "Frida list_applications for {device_id} returned Internal error ({message}); falling back to ADB/process scan"
+                );
+                Vec::new()
+            }
             Err(error) => return Err(error),
         };
         (svc.get_device_info(device_id)?, frida_apps)

@@ -5,7 +5,7 @@ export interface AiToolDef {
 	params: Record<string, string>;
 }
 
-/** All 127 CARF RPC handlers exposed as AI-callable tools, grouped by module. */
+/** All 106 CARF RPC handlers exposed as AI-callable tools, grouped by module. */
 export const CARF_TOOLS: AiToolDef[] = [
 	// ── Process (5) ──
 	{ name: "ping", category: "process", description: "Health check — returns pong if agent is alive", params: {} },
@@ -37,7 +37,7 @@ export const CARF_TOOLS: AiToolDef[] = [
 	// ── Memory (14) ──
 	{ name: "readMemory", category: "memory", description: "Read bytes from memory address", params: { address: "string (hex)", size: "number" } },
 	{ name: "writeMemory", category: "memory", description: "Write bytes to memory address", params: { address: "string (hex)", data: "string (hex bytes)" } },
-	{ name: "scanMemory", category: "memory", description: "Scan memory for pattern", params: { pattern: "string (IDA-style, e.g. '48 8B ?? 00')", ranges: "string (protection filter, e.g. 'r-x')" } },
+	{ name: "scanMemory", category: "memory", description: "Scan memory for pattern", params: { pattern: "string (IDA-style, e.g. '48 8B ?? 00')", protection: "string? (protection filter, e.g. 'r-x', defaults to 'r--')", base: "string? (hex; pair with size for single-range scan)", size: "number?" } },
 	{ name: "allocateMemory", category: "memory", description: "Allocate memory in target process", params: { size: "number" } },
 	{ name: "protectMemory", category: "memory", description: "Change memory protection", params: { address: "string", size: "number", protection: "string (e.g. 'rwx')" } },
 	{ name: "queryMemoryProtection", category: "memory", description: "Query current protection of memory address", params: { address: "string" } },
@@ -45,7 +45,7 @@ export const CARF_TOOLS: AiToolDef[] = [
 	{ name: "dumpMemoryRange", category: "memory", description: "Dump memory range as hex string", params: { base: "string", size: "number" } },
 	{ name: "compareMemory", category: "memory", description: "Compare two memory regions", params: { addr1: "string", addr2: "string", size: "number" } },
 	{ name: "enumerateMallocRanges", category: "memory", description: "Enumerate heap-allocated ranges", params: {} },
-	{ name: "startMemoryMonitor", category: "memory", description: "Start monitoring memory access on a range", params: { base: "string", size: "number" } },
+	{ name: "startMemoryMonitor", category: "memory", description: "Start monitoring memory access on one or more ranges", params: { ranges: "Array<{ base: string, size: number }>" } },
 	{ name: "stopMemoryMonitor", category: "memory", description: "Stop memory access monitor", params: {} },
 	{ name: "drainMonitorEvents", category: "memory", description: "Get pending memory access events", params: {} },
 	{ name: "getMemoryMonitorStatus", category: "memory", description: "Check if memory monitor is active", params: {} },
@@ -58,21 +58,21 @@ export const CARF_TOOLS: AiToolDef[] = [
 	{ name: "getJavaMethods", category: "java", description: "Get methods of a Java class", params: { className: "string (e.g. 'com.example.MyClass')" } },
 	{ name: "getJavaFields", category: "java", description: "Get fields of a Java class", params: { className: "string" } },
 	{ name: "getJavaStackTrace", category: "java", description: "Get Java stack trace of current thread", params: {} },
-	{ name: "hookJavaMethod", category: "java", description: "Hook a Java method to intercept calls", params: { className: "string", method: "string", overloadIndex: "number?" } },
-	{ name: "unhookJavaMethod", category: "java", description: "Remove hook from a Java method", params: { className: "string", method: "string" } },
-	{ name: "callJavaMethod", category: "java", description: "Call a static Java method", params: { className: "string", method: "string", args: "unknown[]?" } },
+	{ name: "hookJavaMethod", category: "java", description: "Hook a Java method to intercept calls", params: { className: "string", methodName: "string", overloadIndex: "number?" } },
+	{ name: "unhookJavaMethod", category: "java", description: "Remove a previously installed Java hook", params: { hookId: "string (from hookJavaMethod)" } },
+	{ name: "callJavaMethod", category: "java", description: "Invoke a Java method (static or on a live instance)", params: { className: "string", methodName: "string", args: "unknown[]", isStatic: "boolean" } },
 	{ name: "setJavaHookActive", category: "java", description: "Enable/disable a Java hook without removing it", params: { hookId: "string", active: "boolean" } },
 	{ name: "listJavaHooks", category: "java", description: "List all active Java hooks", params: {} },
 	{ name: "chooseJavaInstances", category: "java", description: "Find live instances of a Java class on heap", params: { className: "string" } },
 	{ name: "searchJavaHeap", category: "java", description: "Search the Java heap for instances matching criteria", params: { className: "string" } },
-	{ name: "sqliteQuery", category: "java", description: "Execute SQL query on an open SQLite database", params: { dbPath: "string", query: "string" } },
+	{ name: "sqliteQuery", category: "java", description: "Execute a SQL query against a SQLite database file on the target device", params: { path: "string (file path on target)", query: "string" } },
 
 	// ── ObjC (8) ──
 	{ name: "isObjcAvailable", category: "objc", description: "Check if Objective-C runtime is available (iOS/macOS)", params: {} },
 	{ name: "enumerateObjcClasses", category: "objc", description: "List all registered ObjC classes", params: { filter: "string?" } },
 	{ name: "getObjcMethods", category: "objc", description: "Get methods of an ObjC class", params: { className: "string" } },
 	{ name: "hookObjcMethod", category: "objc", description: "Hook an ObjC method by selector", params: { className: "string", selector: "string" } },
-	{ name: "unhookObjcMethod", category: "objc", description: "Unhook an ObjC method", params: { className: "string", selector: "string" } },
+	{ name: "unhookObjcMethod", category: "objc", description: "Unhook a previously installed ObjC hook", params: { hookId: "string (from hookObjcMethod)" } },
 	{ name: "setObjcHookActive", category: "objc", description: "Enable/disable an ObjC hook", params: { hookId: "string", active: "boolean" } },
 	{ name: "listObjcHooks", category: "objc", description: "List active ObjC hooks", params: {} },
 	{ name: "chooseObjcInstances", category: "objc", description: "Find live instances of an ObjC class", params: { className: "string" } },
@@ -82,8 +82,8 @@ export const CARF_TOOLS: AiToolDef[] = [
 	{ name: "enumerateSwiftModules", category: "swift", description: "List Swift modules", params: {} },
 	{ name: "demangleSwiftSymbol", category: "swift", description: "Demangle a Swift symbol name", params: { symbol: "string" } },
 	{ name: "enumerateSwiftTypes", category: "swift", description: "List types in a Swift module", params: { moduleName: "string" } },
-	{ name: "hookSwiftFunction", category: "swift", description: "Hook a Swift function by address", params: { address: "string", name: "string?" } },
-	{ name: "unhookSwiftFunction", category: "swift", description: "Unhook a Swift function", params: { address: "string" } },
+	{ name: "hookSwiftFunction", category: "swift", description: "Hook a Swift function by address or symbol", params: { target: "string (hex address, module!symbol, or bare symbol)", captureArgs: "boolean?", captureRetval: "boolean?", captureBacktrace: "boolean?" } },
+	{ name: "unhookSwiftFunction", category: "swift", description: "Unhook a previously installed Swift hook", params: { hookId: "string (from hookSwiftFunction)" } },
 	{ name: "listSwiftHooks", category: "swift", description: "List active Swift hooks", params: {} },
 	{ name: "setSwiftHookActive", category: "swift", description: "Enable/disable a Swift hook", params: { hookId: "string", active: "boolean" } },
 
@@ -95,14 +95,14 @@ export const CARF_TOOLS: AiToolDef[] = [
 	{ name: "getIl2cppClassMethods", category: "il2cpp", description: "Get methods of an IL2CPP class", params: { className: "string (full name)" } },
 	{ name: "getIl2cppClassFields", category: "il2cpp", description: "Get fields of an IL2CPP class", params: { className: "string" } },
 	{ name: "hookIl2cppMethod", category: "il2cpp", description: "Hook an IL2CPP method", params: { className: "string", methodName: "string", address: "string" } },
-	{ name: "unhookIl2cppMethod", category: "il2cpp", description: "Unhook an IL2CPP method", params: { address: "string" } },
+	{ name: "unhookIl2cppMethod", category: "il2cpp", description: "Unhook a previously installed IL2CPP hook", params: { hookId: "string (from hookIl2cppMethod)" } },
 	{ name: "dumpIl2cppMetadata", category: "il2cpp", description: "Dump all IL2CPP metadata to a file", params: {} },
 	{ name: "listIl2cppHooks", category: "il2cpp", description: "List active IL2CPP hooks", params: {} },
 	{ name: "setIl2cppHookActive", category: "il2cpp", description: "Enable/disable an IL2CPP hook", params: { hookId: "string", active: "boolean" } },
 
 	// ── Native (5) ──
-	{ name: "hookFunction", category: "native", description: "Hook a native function by address", params: { address: "string", name: "string?" } },
-	{ name: "unhookFunction", category: "native", description: "Unhook a native function", params: { address: "string" } },
+	{ name: "hookFunction", category: "native", description: "Hook a native function", params: { target: "string (hex address, module!symbol, or bare symbol)", captureArgs: "boolean?", captureRetval: "boolean?", captureBacktrace: "boolean?" } },
+	{ name: "unhookFunction", category: "native", description: "Unhook a previously installed native hook", params: { hookId: "string (from hookFunction)" } },
 	{ name: "setNativeHookActive", category: "native", description: "Enable/disable a native hook", params: { hookId: "string", active: "boolean" } },
 	{ name: "listHooks", category: "native", description: "List all active native hooks", params: {} },
 	{ name: "listNativeHooks", category: "native", description: "List native hooks only", params: {} },
@@ -121,7 +121,7 @@ export const CARF_TOOLS: AiToolDef[] = [
 	// ── Filesystem (4) ──
 	{ name: "listDirectory", category: "filesystem", description: "List directory contents on target device", params: { path: "string" } },
 	{ name: "readFile", category: "filesystem", description: "Read file contents from target device", params: { path: "string", encoding: "string? (utf8, hex)" } },
-	{ name: "sqliteTables", category: "filesystem", description: "List tables in a SQLite database file", params: { dbPath: "string" } },
+	{ name: "sqliteTables", category: "filesystem", description: "List tables in a SQLite database file on the target device", params: { path: "string (file path on target)" } },
 	{ name: "statFile", category: "filesystem", description: "Get file metadata (size, permissions, timestamps)", params: { path: "string" } },
 
 	// ── Console (1) ──
@@ -130,7 +130,7 @@ export const CARF_TOOLS: AiToolDef[] = [
 	// ── Resolver (5) ──
 	{ name: "resolveApi", category: "resolver", description: "Resolve API functions by query (e.g. 'exports:libssl!SSL_*')", params: { query: "string" } },
 	{ name: "resolveSymbol", category: "resolver", description: "Resolve a debug symbol to address and module info", params: { address: "string" } },
-	{ name: "resolveModuleExport", category: "resolver", description: "Resolve a specific export from a module", params: { moduleName: "string", exportName: "string" } },
+	{ name: "resolveModuleExport", category: "resolver", description: "Resolve a specific export from a module", params: { module: "string", name: "string" } },
 	{ name: "getGlobalExport", category: "resolver", description: "Find a global export across all modules", params: { name: "string" } },
 	{ name: "findExportByName", category: "resolver", description: "Find export address by name (any module)", params: { name: "string" } },
 

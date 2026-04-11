@@ -2,6 +2,7 @@ import { createStore } from "solid-js/store";
 import type { FileEntry } from "~/lib/types";
 import { restoreStore, snapshotStore } from "~/lib/store-snapshot";
 import { invoke } from "~/lib/tauri";
+import { toastError } from "~/features/toast/toast.store";
 
 interface SqliteQueryResult {
   columns: string[];
@@ -103,7 +104,7 @@ async function fetchDirectory(sessionId: string, path: string): Promise<boolean>
     setState({ currentPath: path, entries: entries ?? [], entriesLoading: false });
     return true;
   } catch (err) {
-    console.error("[filesystem] fetchDirectory failed:", err);
+    toastError("Failed to list directory", err);
     setState({ entries: [], entriesLoading: false });
     return false;
   }
@@ -123,7 +124,7 @@ async function readFileContent(
     });
     setState({ fileContent: content ?? "", fileLoading: false });
   } catch (err) {
-    console.error("[filesystem] readFileContent failed:", err);
+    toastError("Failed to read file", err);
     setState({ fileContent: null, fileLoading: false });
   }
 }
@@ -142,7 +143,7 @@ async function querySqlite(
     });
     setState({ sqliteResult: result ?? null, sqliteLoading: false });
   } catch (err) {
-    console.error("[filesystem] querySqlite failed:", err);
+    toastError("Failed to query SQLite", err);
     setState({ sqliteResult: null, sqliteLoading: false });
   }
 }
@@ -156,7 +157,7 @@ async function fetchSqliteTables(sessionId: string, path: string): Promise<void>
     });
     setState("sqliteTables", tables ?? []);
   } catch (err) {
-    console.error("[filesystem] fetchSqliteTables failed:", err);
+    toastError("Failed to fetch SQLite tables", err);
     setState("sqliteTables", []);
   }
 }
@@ -178,7 +179,7 @@ async function downloadFile(sessionId: string, path: string): Promise<void> {
     a.click();
     URL.revokeObjectURL(url);
   } catch (err) {
-    console.error("[filesystem] downloadFile failed:", err);
+    toastError("Failed to download file", err);
   }
 }
 
